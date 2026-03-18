@@ -1,5 +1,7 @@
 # JRVLTSQL
 
+> **Fork**: このリポジトリは [miyamamoto/jrvltsql](https://github.com/miyamamoto/jrvltsql)（v1.1.0）からのフォークです。オリジナルの作者に感謝します。
+
 JRA-VAN DataLab / 地方競馬DATA の競馬データを SQLite・PostgreSQL にインポートするツール。
 
 ## 特徴
@@ -27,7 +29,7 @@ JRA-VAN DataLab / 地方競馬DATA の競馬データを SQLite・PostgreSQL に
 PowerShell で以下を実行するだけ！Python・仮想環境・依存パッケージすべて自動でセットアップされます。
 
 ```powershell
-irm https://raw.githubusercontent.com/miyamamoto/jrvltsql/master/install.ps1 | iex
+irm https://raw.githubusercontent.com/takepan/jrvltsql/master/install.ps1 | iex
 ```
 
 > 📦 32-bit Python の自動検出、仮想環境作成、パッケージインストールまで一括で行います。
@@ -35,7 +37,7 @@ irm https://raw.githubusercontent.com/miyamamoto/jrvltsql/master/install.ps1 | i
 ### 手動インストール
 
 ```bash
-pip install git+https://github.com/miyamamoto/jrvltsql.git
+pip install git+https://github.com/takepan/jrvltsql.git
 ```
 
 ## クイックスタート
