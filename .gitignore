@@ -1,0 +1,255 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# PEP 582
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Project specific
+# Database files
+data/
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# Log files
+logs/
+*.log
+logs/*.log
+logs/*.log.*
+
+# Configuration files with secrets
+config/config.yaml
+!config/config.yaml.example
+
+# PID files
+*.pid
+
+# Process lock files
+.locks/
+
+# Temporary files
+*.tmp
+*.temp
+
+# JV-Link cache
+.jvlink/
+jvlink_cache/
+
+# OS specific
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Development working files
+.claude/
+.specify/
+setup_jvlink_key.ps1
+
+# Reference data (JRA-VAN proprietary - not redistributable)
+reference_data/*
+!reference_data/README.md
+
+# Development documents and scripts
+TEST_CLEANUP_REPORT.md
+COMMAND_TEST_RESULTS.md
+scripts/analyze_tests.py
+scripts/check_both_databases.py
+scripts/cleanup_tests.py
+scripts/find_missing_record_types.py
+scripts/test_all_data_specs.py
+scripts/load_*.py
+scripts/create_*.py
+scripts/recreate_*.py
+scripts/regenerate_*.py
+scripts/add_*.py
+*.log
+find_missing.log
+load_*.log
+test_*.log
+
+# Analysis reports and documentation
+*_REPORT.md
+*_ANALYSIS.md
+*_SUMMARY.md
+*_REVIEW.md
+*_CHECKLIST.md
+MIGRATION_COMPLETE.md
+TEST_RESULTS_*.md
+
+# Test and debug scripts (except official test suite in tests/)
+/test_*.py
+!tests/test_*.py
+debug_*.py
+demo_*.py
+scripts/test_*.py
+scripts/debug_*.py
+scripts/demo_*.py
+scripts/analyze_*.py
+scripts/apply_*.py
+scripts/benchmark_*.py
+scripts/check_*.py
+!scripts/check_data_quality.py
+scripts/comprehensive_*.py
+scripts/fetch_all_*.sh
+scripts/final_*.py
+scripts/fix_*.py
+scripts/get_*.py
+scripts/migrate_*.py
+scripts/profile_*.py
+scripts/validate_*.py
+!scripts/validate_schema_parser.py
+scripts/verify_*.py
+
+# Generated directories (allow specific documentation)
+docs/_build/
+migrations/
+# Allow important documentation files
+!docs/
+!docs/*.md
+
+# Temporary files
+nul
+
+# Auto Claude data directory
+.auto-claude/
+Z:*
+
+# IDE/Tool caches
+.serena/
+.ruff_cache/
+
+# Windows path artifacts
+Z:/
+
+# Development-only files (not needed in repo)
+CLAUDE.md
+requirements*.txt
+jv_data_formats.json
+quickstart_debug.bat
+setup_dll_surrogate.bat
+uv.lock
