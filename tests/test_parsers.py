@@ -73,7 +73,7 @@ class TestIndividualParsers:
             'H1': 782, 'H6': 782, 'HC': 3248, 'HN': 3248, 'HR': 3664, 'HS': 3664, 'HY': 1336,
             'JC': 252, 'JG': 251, 'KS': 282,
             'O1': 148, 'O2': 148, 'O3': 148, 'O4': 148, 'O5': 148, 'O6': 148,
-            'RA': 856, 'RC': 1926, 'SE': 463, 'SK': 263, 'TC': 71, 'TK': 240, 'TM': 216,
+            'RA': 1272, 'RC': 1926, 'SE': 463, 'SK': 263, 'TC': 71, 'TK': 240, 'TM': 216,
             'UM': 969, 'WC': 72, 'WE': 195, 'WF': 3416, 'WH': 1356, 'YS': 424,
             'HA': 1032, 'NC': 145, 'NU': 64
         }
@@ -88,6 +88,21 @@ class TestIndividualParsers:
             remaining = length - len(data)
             data += b' ' * remaining
             samples[record_type] = data
+
+        # O1-O6, TM パーサーは List[Dict] を返す。
+        # 有効なエントリがないと None になるため、サンプルデータにエントリを挿入する。
+        def _patch(s, rt, offset, entry):
+            ba = bytearray(s[rt])
+            ba[offset:offset + len(entry)] = entry
+            s[rt] = bytes(ba)
+
+        _patch(samples, 'O1', 43, b'01' + b'0100' + b'01')                  # Tan: Umaban+Odds+Ninki (8B)
+        _patch(samples, 'O2', 40, b'0102' + b'001000' + b'001')             # Kumi+Odds+Ninki (13B)
+        _patch(samples, 'O3', 40, b'0102' + b'00100' + b'00200' + b'001')   # Kumi+OddsLow+OddsHigh+Ninki (17B)
+        _patch(samples, 'O4', 40, b'0102' + b'001000' + b'001')             # Kumi+Odds+Ninki (13B)
+        _patch(samples, 'O5', 40, b'010203' + b'001000' + b'001')           # Kumi+Odds+Ninki (15B)
+        _patch(samples, 'O6', 40, b'010203' + b'0010000' + b'0001')         # Kumi+Odds+Ninki (17B)
+        _patch(samples, 'TM', 31, b'01' + b'0100')                          # Umaban+TMScore (6B)
 
         return samples
 
@@ -135,7 +150,7 @@ class TestIndividualParsers:
 
         result = parser.parse(data)
         assert result is not None, f"{record_type}パーサーがサンプルデータのパースに失敗"
-        assert isinstance(result, dict), f"{record_type}パーサーの戻り値が辞書でない"
+        assert isinstance(result, (dict, list)), f"{record_type}パーサーの戻り値が辞書またはリストでない"
 
     @pytest.mark.parametrize("record_type", ALL_RECORD_TYPES)
     def test_parser_output_has_common_fields(self, parser_factory, sample_data, record_type):
@@ -146,11 +161,12 @@ class TestIndividualParsers:
         result = parser.parse(data)
         assert result is not None
 
+        check = result[0] if isinstance(result, list) else result
         # 共通フィールドの確認（すべてのパーサーにRecordSpecがあるはず）
-        assert 'RecordSpec' in result, f"{record_type}パーサーの出力にRecordSpecがない"
+        assert 'RecordSpec' in check, f"{record_type}パーサーの出力にRecordSpecがない"
         # DataKubunはNAR (NU)パーサー以外にあるはず
         if record_type != "NU":
-            assert 'DataKubun' in result, f"{record_type}パーサーの出力にDataKubunがない"
+            assert 'DataKubun' in check, f"{record_type}パーサーの出力にDataKubunがない"
         # MakeDateはほとんどのパーサーにあるが、一部（AV等）にはないので省略
 
     @pytest.mark.parametrize("record_type", ALL_RECORD_TYPES)
@@ -161,8 +177,9 @@ class TestIndividualParsers:
 
         result = parser.parse(data)
         assert result is not None
-        assert result['RecordSpec'] == record_type, \
-            f"{record_type}パーサーのRecordSpecの値が正しくない: {result.get('RecordSpec')}"
+        check = result[0] if isinstance(result, list) else result
+        assert check['RecordSpec'] == record_type, \
+            f"{record_type}パーサーのRecordSpecの値が正しくない: {check.get('RecordSpec')}"
 
     @pytest.mark.parametrize("record_type", ALL_RECORD_TYPES)
     def test_parser_empty_data(self, parser_factory, record_type):
@@ -230,7 +247,7 @@ class TestParserFactoryParseMethod:
         data = b'RA'  # RecordSpec
         data += b'1'  # DataKubun
         data += b'20240601'  # MakeDate
-        data += b' ' * (856 - len(data))  # 残りをスペースで埋める
+        data += b' ' * (1272 - len(data))  # 残りをスペースで埋める
         return data
 
     def test_factory_parse_valid_record(self, parser_factory, sample_ra_record):
@@ -306,7 +323,7 @@ class TestParserFieldExtraction:
         data += b'03'  # Kaiji (22-23)
         data += b'08'  # Nichiji (24-25)
         data += b'11'  # RaceNum (26-27)
-        data += b' ' * (856 - len(data))  # 残りをスペースで埋める
+        data += b' ' * (1272 - len(data))  # 残りをスペースで埋める
 
         result = parser.parse(data)
 
@@ -369,7 +386,7 @@ class TestParserEncodingHandling:
         race_name = 'テストレース'
         data += race_name.encode('cp932')
         data += b' ' * (60 - len(race_name.encode('cp932')))
-        data += b' ' * (856 - len(data))  # 残りをスペースで埋める
+        data += b' ' * (1272 - len(data))  # 残りをスペースで埋める
 
         result = parser.parse(data)
 

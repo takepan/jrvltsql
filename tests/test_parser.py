@@ -54,7 +54,7 @@ class TestRAParser:
         """Test RA parser initialization."""
         parser = RAParser()
         assert parser.RECORD_TYPE == "RA"
-        assert parser.RECORD_LENGTH == 856
+        assert parser.RECORD_LENGTH == 1272
 
     def test_parse_ra_record(self):
         """Test parsing RA record."""
@@ -71,7 +71,7 @@ class TestRAParser:
         record += b"08"  # idNichiji (offset 23)
         record += b"11"  # idRaceNum (offset 25)
         # Pad to reach minimum expected length
-        record += b" " * (856 - len(record))  # Correct record length
+        record += b" " * (1272 - len(record))  # Correct record length
 
         data = parser.parse(record)
         assert data is not None
@@ -107,7 +107,7 @@ class TestRAParser:
 
         # Create a minimal valid RA record
         record = b"RA1" + b"20240601" + b"2024" + b"0601" + b"06" + b"03" + b"08" + b"11"
-        record += b" " * (856 - len(record))
+        record += b" " * (1272 - len(record))
 
         data = parser.parse(record)
         assert data is not None
@@ -266,7 +266,7 @@ class TestParserFactory:
 
         # Create RA record
         record = b"RA1" + b"20240601" + b"2024" + b"0601" + b"06" + b"03" + b"08" + b"11"
-        record += b" " * (856 - len(record))  # Correct record length
+        record += b" " * (1272 - len(record))  # Correct record length
 
         data = factory.parse(record)
         assert data is not None
