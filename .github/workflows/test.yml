@@ -57,7 +57,7 @@ jobs:
 
     - name: Run performance benchmarks
       run: |
-        pytest tests/test_performance_benchmarks.py -v --benchmark-only
+        pytest tests/test_performance_benchmarks.py -v
 
   lint:
     runs-on: ubuntu-latest
