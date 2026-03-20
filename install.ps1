@@ -56,14 +56,18 @@ Write-Banner
 Write-Step "Step 1/7: Checking 32-bit Python $PYTHON_VERSION..."
 
 $python32 = $null
-$pythonCmd = $null
+$pythonExe = $null
+$pythonExeArgs = @()
 
 # Try py launcher with 32-bit flag
 try {
     $ver = & py "-$PYTHON_VERSION-32" --version 2>&1
     if ($LASTEXITCODE -eq 0 -and $ver -match "Python 3\.12") {
         $python32 = "py -$PYTHON_VERSION-32"
-        $pythonCmd = @("py", "-$PYTHON_VERSION-32")
+        # Resolve actual python.exe path to avoid splatting issues with iex
+        $resolvedPath = & py "-$PYTHON_VERSION-32" -c "import sys; print(sys.executable)" 2>&1
+        $pythonExe = "$resolvedPath".Trim()
+        $pythonExeArgs = @()
         Write-Ok "Found: $ver (py launcher)"
     }
 } catch {}
@@ -81,7 +85,8 @@ if (-not $python32) {
             $archCheck = & $p -c "import struct; print(struct.calcsize('P') * 8)" 2>&1
             if ($archCheck -eq "32") {
                 $python32 = $p
-                $pythonCmd = @($p)
+                $pythonExe = $p
+                $pythonExeArgs = @()
                 $ver = & $p --version 2>&1
                 Write-Ok "Found: $ver at $p"
                 break
@@ -168,11 +173,11 @@ if (Test-Path "$venvDir\Scripts\python.exe") {
     } else {
         Write-Warn "Existing venv is not 32-bit, recreating..."
         Remove-Item -Recurse -Force $venvDir
-        & @pythonCmd -m venv $venvDir
+        & $pythonExe @pythonExeArgs -m venv $venvDir
         Write-Ok "Virtual environment created (32-bit)"
     }
 } else {
-    & @pythonCmd -m venv $venvDir
+    & $pythonExe @pythonExeArgs -m venv $venvDir
     if ($LASTEXITCODE -ne 0) {
         Write-Fail "Failed to create virtual environment"
         exit 1
