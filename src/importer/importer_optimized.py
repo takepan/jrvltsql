@@ -48,7 +48,8 @@ class OptimizedDataImporter:
         # Map record types to table names (same as original)
         self._table_map = {
             "RA": "NL_RA", "SE": "NL_SE", "HR": "NL_HR", "JG": "NL_JG",
-            "H1": "NL_H1", "H6": "NL_H6", "O1": "NL_O1", "O2": "NL_O2",
+            "H1": "NL_H1", "H6": "NL_H6", "O1": "NL_O1", "O1W": "NL_O1_WAKU",
+            "O2": "NL_O2",
             "O3": "NL_O3", "O4": "NL_O4", "O5": "NL_O5", "O6": "NL_O6",
             "YS": "NL_YS", "UM": "NL_UM", "KS": "NL_KS", "CH": "NL_CH",
             "BR": "NL_BR", "BN": "NL_BN", "HN": "NL_HN", "SK": "NL_SK",
