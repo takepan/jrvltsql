@@ -396,7 +396,9 @@ try:
     nvlink = win32com.client.Dispatch("NVDTLabLib.NVLink")
     sk = os.environ.get("_NVLINK_SK", "")
     if sk:
-        nvlink.NVSetServiceKey(sk)
+        import subprocess as _sp
+        _sp.run(['reg', 'add', r'HKLM\SOFTWARE\NAR\NVDTLabLib', '/v', 'ServiceKey', '/t', 'REG_SZ', '/d', sk, '/f'],
+                capture_output=True, text=True)
     result = nvlink.NVInit("UNKNOWN")
     print(f"RESULT:{result}")
 except Exception as e:
@@ -491,7 +493,9 @@ try:
     # Set service key from config (passed via environment variable)
     sk = os.environ.get("_NVLINK_SK", "")
     if sk:
-        nvlink.NVSetServiceKey(sk)
+        import subprocess as _sp
+        _sp.run(['reg', 'add', r'HKLM\SOFTWARE\NAR\NVDTLabLib', '/v', 'ServiceKey', '/t', 'REG_SZ', '/d', sk, '/f'],
+                capture_output=True, text=True)
 
     # Initialize
     init_result = nvlink.NVInit("UNKNOWN")
@@ -653,7 +657,9 @@ try:
     # Set service key from config (passed via environment variable)
     sk = os.environ.get("_NVLINK_SK", "")
     if sk:
-        nvlink.NVSetServiceKey(sk)
+        import subprocess as _sp
+        _sp.run(['reg', 'add', r'HKLM\SOFTWARE\NAR\NVDTLabLib', '/v', 'ServiceKey', '/t', 'REG_SZ', '/d', sk, '/f'],
+                capture_output=True, text=True)
 
     init_result = nvlink.NVInit("UNKNOWN")
     if init_result != 0:
