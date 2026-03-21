@@ -1493,18 +1493,46 @@ def _interactive_setup_rich() -> dict:
     mode_table.add_column("モード", width=6)
     mode_table.add_column("対象データ", width=50)
 
-    mode_table.add_row(
-        "1", "簡易",
-        "RACE, DIFF\n[dim](レース結果・確定オッズ・馬情報)[/dim]"
-    )
-    mode_table.add_row(
-        "2", "標準",
-        "簡易 + BLOD,YSCH,TOKU,SLOP,HOYU,HOSE等\n[dim](血統・調教・スケジュール等)[/dim]"
-    )
-    mode_table.add_row(
-        "3", "フル",
-        "標準 + MING,WOOD,COMM\n[dim](マイニング・調教詳細・解説)[/dim]"
-    )
+    if data_source == 'nar':
+        # NV-LinkはRACEとDIFNのみ対応
+        mode_table.add_row(
+            "1", "簡易",
+            "RACE, DIFN\n[dim](レース結果・確定オッズ・馬情報)[/dim]"
+        )
+        mode_table.add_row(
+            "2", "標準",
+            "RACE, DIFN\n[dim](簡易と同一、NV-Linkは追加スペックなし)[/dim]"
+        )
+        mode_table.add_row(
+            "3", "フル",
+            "RACE, DIFN\n[dim](簡易と同一、NV-Linkは追加スペックなし)[/dim]"
+        )
+    elif data_source == 'all':
+        mode_table.add_row(
+            "1", "簡易",
+            "RACE, DIFF/DIFN\n[dim](レース結果・確定オッズ・馬情報)[/dim]"
+        )
+        mode_table.add_row(
+            "2", "標準",
+            "簡易 + BLOD,YSCH,TOKU,SLOP,HOYU,HOSE等[dim](JRAのみ)[/dim]\n[dim](血統・調教・スケジュール等)[/dim]"
+        )
+        mode_table.add_row(
+            "3", "フル",
+            "標準 + MING,WOOD,COMM[dim](JRAのみ)[/dim]\n[dim](マイニング・調教詳細・解説)[/dim]"
+        )
+    else:
+        mode_table.add_row(
+            "1", "簡易",
+            "RACE, DIFF\n[dim](レース結果・確定オッズ・馬情報)[/dim]"
+        )
+        mode_table.add_row(
+            "2", "標準",
+            "簡易 + BLOD,YSCH,TOKU,SLOP,HOYU,HOSE等\n[dim](血統・調教・スケジュール等)[/dim]"
+        )
+        mode_table.add_row(
+            "3", "フル",
+            "標準 + MING,WOOD,COMM\n[dim](マイニング・調教詳細・解説)[/dim]"
+        )
 
     # 更新モードは前回セットアップがある場合のみ表示
     if last_setup:
@@ -2153,9 +2181,18 @@ def _interactive_setup_simple() -> dict:
     print()
     print("   No  モード  対象データ                                期間")
     print("   ──────────────────────────────────────────────────────────────")
-    print("   1)  簡易    RACE,DIFF (レース結果・確定オッズ・馬情報)")
-    print("   2)  標準    簡易+BLOD,YSCH,TOKU,SLOP等 (血統・調教等)")
-    print("   3)  フル    標準+MING,WOOD,COMM (マイニング・解説等)")
+    if data_source == 'nar':
+        print("   1)  簡易    RACE,DIFN (レース結果・確定オッズ・馬情報)")
+        print("   2)  標準    RACE,DIFN (簡易と同一、NV-Linkは追加スペックなし)")
+        print("   3)  フル    RACE,DIFN (簡易と同一、NV-Linkは追加スペックなし)")
+    elif data_source == 'all':
+        print("   1)  簡易    RACE,DIFF/DIFN (レース結果・確定オッズ・馬情報)")
+        print("   2)  標準    簡易+BLOD,YSCH,TOKU,SLOP等(JRAのみ) (血統・調教等)")
+        print("   3)  フル    標準+MING,WOOD,COMM(JRAのみ) (マイニング・解説等)")
+    else:
+        print("   1)  簡易    RACE,DIFF (レース結果・確定オッズ・馬情報)")
+        print("   2)  標準    簡易+BLOD,YSCH,TOKU,SLOP等 (血統・調教等)")
+        print("   3)  フル    標準+MING,WOOD,COMM (マイニング・解説等)")
     if last_setup:
         last_date = datetime.fromisoformat(last_setup['timestamp'])
         print(f"   4)  更新    前回({last_setup.get('mode_name', '?')})と同じ          前回({last_date.strftime('%Y-%m-%d')})以降")
