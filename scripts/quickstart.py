@@ -4021,25 +4021,30 @@ class QuickstartRunner:
                         logger.warning(f"JRAデータ取得でエラーが発生しましたが、NARデータ取得を続行します: {jra_error}")
 
                     # NARデータ取得（JRAの成否に関わらず実行）
-                    try:
-                        nar_processor = BatchProcessor(
-                            database=database,
-                            sid=config.get("jvlink.sid", "JLTSQL"),
-                            batch_size=1000,
-                            service_key=config.get("jvlink.service_key"),
-                            initialization_key=config.get("nvlink.initialization_key", "UNKNOWN"),
-                            show_progress=True,
-                            data_source=DataSource.NAR,
-                        )
-                        nar_result = nar_processor.process_date_range(
-                            data_spec=spec,
-                            from_date=self.settings['from_date'],
-                            to_date=self.settings['to_date'],
-                            option=option,
-                        )
-                    except Exception as e:
-                        nar_error = str(e)
-                        logger.warning(f"NARデータ取得でエラーが発生しました: {nar_error}")
+                    # NV-LinkはRACEとDIFNのみ対応。それ以外のスペックはスキップ。
+                    NAR_SUPPORTED_SPECS = {"RACE", "DIFN"}
+                    if spec in NAR_SUPPORTED_SPECS:
+                        try:
+                            nar_processor = BatchProcessor(
+                                database=database,
+                                sid=config.get("jvlink.sid", "JLTSQL"),
+                                batch_size=1000,
+                                service_key=config.get("jvlink.service_key"),
+                                initialization_key=config.get("nvlink.initialization_key", "UNKNOWN"),
+                                show_progress=True,
+                                data_source=DataSource.NAR,
+                            )
+                            nar_result = nar_processor.process_date_range(
+                                data_spec=spec,
+                                from_date=self.settings['from_date'],
+                                to_date=self.settings['to_date'],
+                                option=option,
+                            )
+                        except Exception as e:
+                            nar_error = str(e)
+                            logger.warning(f"NARデータ取得でエラーが発生しました: {nar_error}")
+                    else:
+                        logger.info(f"{spec} はNV-Link非対応のためNARデータ取得をスキップ")
 
                     # 結果を統合（両方失敗した場合のみエラー）
                     if jra_error and nar_error:
