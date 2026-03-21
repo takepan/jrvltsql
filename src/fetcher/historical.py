@@ -651,21 +651,15 @@ class HistoricalFetcher(BaseFetcher):
                             time.sleep(interval * 2)  # Wait longer before retry
                             continue
                         else:
-                            # NAR (NV-Link) の -203 エラーは通常、キャッシュまたはセットアップの問題
-                            if status == -203:
-                                raise FetcherError(
-                                    f"NV-Linkダウンロードエラー (code: {status}): "
-                                    "地方競馬DATAのセットアップが完了していないか、キャッシュに問題があります。\n"
-                                    "対処方法:\n"
-                                    "1. NVDTLab設定ツールを起動し、「データダウンロード」タブで初回セットアップを実行\n"
-                                    "2. セットアップ完了後も問題が続く場合は、キャッシュをクリアして再試行\n"
-                                    "3. アプリケーション(UmaConn/地方競馬DATA)を再起動\n"
-                                    "注: NAR データ取得には option=4 (セットアップモード) の使用が推奨されます"
-                                )
-                            else:
-                                raise FetcherError(
-                                    f"Download failed after {max_retries} retries with status code: {status}"
-                                )
+                            # ~/jra/fetch_nar_daily.py準拠:
+                            # NVStatusが負の値の場合はダウンロード待ちを打ち切って
+                            # データ読み取りに進む（キャッシュ済みデータを使用）
+                            logger.warning(
+                                "Download status negative after retries, proceeding with cached data",
+                                status_code=status,
+                                retry_count=retry_count,
+                            )
+                            break
                     else:
                         # -502/-503: NAR download failures may resolve with NVClose/NVOpen retry
                         if status in (-502, -503):
