@@ -14,55 +14,61 @@ echo.
 
 REM Store exit code for later
 set SCRIPT_EXIT_CODE=0
+set "VENV_DIR=%~dp0venv32"
+set "VENV_PYTHON=%VENV_DIR%\Scripts\python.exe"
 
 REM ============================================================
-REM   Python Detection (32-bit preferred for UmaConn/NAR)
+REM   Step 1: Determine Python interpreter
 REM ============================================================
 
 REM First try: explicit PYTHON environment variable
 if defined PYTHON (
     echo Using PYTHON environment variable: %PYTHON%
-    "%PYTHON%" scripts/quickstart.py %*
-    set SCRIPT_EXIT_CODE=!errorlevel!
-    goto :check_result
+    set "PYTHON_CMD=%PYTHON%"
+    goto :check_venv
 )
 
-REM Second try: py launcher with 32-bit Python 3.12
+REM Check if venv32 already exists with a valid Python
+if exist "%VENV_PYTHON%" (
+    "%VENV_PYTHON%" --version >nul 2>&1
+    if !errorlevel!==0 (
+        echo Using: venv32 Python
+        set "PYTHON_CMD=%VENV_PYTHON%"
+        goto :ensure_deps
+    )
+)
+
+REM Detect system Python (32-bit preferred)
+set "PYTHON_CMD="
+
 py -3.12-32 --version >nul 2>&1
 if !errorlevel!==0 (
-    echo Using: Python 3.12 ^(32-bit^)
-    py -3.12-32 scripts/quickstart.py %*
-    set SCRIPT_EXIT_CODE=!errorlevel!
-    goto :check_result
+    echo Detected: Python 3.12 ^(32-bit^)
+    set "PYTHON_CMD=py -3.12-32"
+    goto :check_venv
 )
 
-REM Third try: py launcher with any 32-bit Python
 py -32 --version >nul 2>&1
 if !errorlevel!==0 (
-    echo Using: Python ^(32-bit^)
-    py -32 scripts/quickstart.py %*
-    set SCRIPT_EXIT_CODE=!errorlevel!
-    goto :check_result
+    echo Detected: Python ^(32-bit^)
+    set "PYTHON_CMD=py -32"
+    goto :check_venv
 )
 
-REM Fourth try: py launcher (any version)
 py --version >nul 2>&1
 if !errorlevel!==0 (
-    echo Using: Python ^(py launcher^)
+    echo Detected: Python ^(py launcher^)
     echo [WARNING] 64-bit Python may not support NAR/UmaConn
-    py scripts/quickstart.py %*
-    set SCRIPT_EXIT_CODE=!errorlevel!
-    goto :check_result
+    set "PYTHON_CMD=py"
+    goto :check_venv
 )
 
-REM Fifth try: python in PATH
 python --version >nul 2>&1
 if !errorlevel!==0 (
-    echo Using: Python ^(PATH^)
+    echo Detected: Python ^(PATH^)
     echo [WARNING] 64-bit Python may not support NAR/UmaConn
-    python scripts/quickstart.py %*
-    set SCRIPT_EXIT_CODE=!errorlevel!
-    goto :check_result
+    set "PYTHON_CMD=python"
+    goto :check_venv
 )
 
 REM No Python found
@@ -72,7 +78,58 @@ echo Download: https://www.python.org/downloads/
 pause
 exit /b 1
 
-:check_result
+REM ============================================================
+REM   Step 2: Create venv if needed
+REM ============================================================
+:check_venv
+if exist "%VENV_PYTHON%" (
+    "%VENV_PYTHON%" --version >nul 2>&1
+    if !errorlevel!==0 (
+        set "PYTHON_CMD=%VENV_PYTHON%"
+        goto :ensure_deps
+    )
+)
+
+echo.
+echo Creating virtual environment...
+%PYTHON_CMD% -m venv "%VENV_DIR%"
+if !errorlevel! neq 0 (
+    echo [WARNING] Could not create venv, using system Python directly
+    goto :run_script
+)
+echo [OK] Virtual environment created
+set "PYTHON_CMD=%VENV_PYTHON%"
+
+REM ============================================================
+REM   Step 3: Ensure dependencies are installed
+REM ============================================================
+:ensure_deps
+"%PYTHON_CMD%" -c "import tenacity, yaml, click, rich, structlog" >nul 2>&1
+if !errorlevel!==0 (
+    goto :run_script
+)
+
+echo.
+echo Installing dependencies...
+"%VENV_DIR%\Scripts\python.exe" -m pip install --upgrade pip >nul 2>&1
+"%VENV_DIR%\Scripts\pip.exe" install -e . >nul 2>&1
+if !errorlevel! neq 0 (
+    echo [WARNING] pip install -e . failed, trying pip install directly...
+    "%VENV_DIR%\Scripts\pip.exe" install pyyaml python-dateutil click rich structlog tenacity pywin32 >nul 2>&1
+)
+echo [OK] Dependencies installed
+
+REM ============================================================
+REM   Run quickstart script
+REM ============================================================
+:run_script
+echo.
+for /f "tokens=*" %%v in ('"%PYTHON_CMD%" --version 2^>^&1') do echo Using: %%v
+echo.
+
+"%PYTHON_CMD%" scripts/quickstart.py %*
+set SCRIPT_EXIT_CODE=!errorlevel!
+
 echo.
 if !SCRIPT_EXIT_CODE! neq 0 (
     echo ============================================================
