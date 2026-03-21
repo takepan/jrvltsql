@@ -1201,19 +1201,78 @@ def _interactive_setup_rich() -> dict:
     elif db_choice == "2":
         # PostgreSQL
         settings['db_type'] = 'postgresql'
-        console.print()
-        console.print("[cyan]PostgreSQL接続設定[/cyan]")
-        console.print()
+
+        # config/config.yaml から接続情報を読み込み
+        pg_host = "localhost"
+        pg_port = 5432
+        pg_database = "keiba"
+        pg_user = "postgres"
+        pg_password = ""
+        try:
+            from src.utils.config import load_config
+            _cfg = load_config(str(Path(__file__).resolve().parent.parent / "config" / "config.yaml"))
+            pg_host = _cfg.get("databases.postgresql.host", pg_host)
+            pg_port = int(_cfg.get("databases.postgresql.port", pg_port))
+            pg_database = _cfg.get("databases.postgresql.database", pg_database)
+            pg_user = _cfg.get("databases.postgresql.user", pg_user)
+            pg_password = _cfg.get("databases.postgresql.password", pg_password) or ""
+            if pg_password.startswith("${"):
+                pg_password = ""
+            if str(pg_host).startswith("${"):
+                pg_host = "localhost"
+            if str(pg_user).startswith("${"):
+                pg_user = "postgres"
+        except Exception:
+            pass
+
+        # 前回のセットアップ履歴からも引き継ぎ
+        if last_setup and last_setup.get('db_type') == 'postgresql':
+            pg_host = last_setup.get('pg_host', pg_host)
+            pg_port = last_setup.get('pg_port', pg_port)
+            pg_database = last_setup.get('pg_database', pg_database)
+            pg_user = last_setup.get('pg_user', pg_user)
+
+        # 環境変数からパスワード取得
+        if not pg_password:
+            pg_password = os.environ.get('PGPASSWORD', '')
+
+        # 接続情報が揃っていればテストしてそのまま使う
+        if pg_host and pg_user and pg_password:
+            console.print()
+            console.print(f"[dim]PostgreSQL接続: {pg_user}@{pg_host}:{pg_port}/{pg_database}[/dim]")
+            console.print("[dim]接続テスト中...[/dim]")
+            status, message = _check_postgresql_database(
+                pg_host, pg_port, pg_database, pg_user, pg_password
+            )
+            if status in ("created", "exists"):
+                console.print(f"[green]OK[/green] {message}")
+                settings['pg_host'] = pg_host
+                settings['pg_port'] = pg_port
+                settings['pg_database'] = pg_database
+                settings['pg_user'] = pg_user
+                settings['pg_password'] = pg_password
+                if status == "exists":
+                    console.print("[dim]既存データベースを使用します[/dim]")
+            else:
+                console.print(f"[yellow]![/yellow] 接続失敗: {message}")
+                console.print("[dim]手動で接続情報を入力してください[/dim]")
+                pg_password = ""  # 入力フローへ
+
+        if 'pg_host' not in settings:
+            # 手動入力フロー
+            console.print()
+            console.print("[cyan]PostgreSQL接続設定[/cyan]")
+            console.print()
 
         # 接続設定の入力
-        while True:
-            pg_host = Prompt.ask("ホスト", default="localhost")
-            pg_port = IntPrompt.ask("ポート", default=5432)
-            pg_database = Prompt.ask("データベース名", default="keiba")
-            pg_user = Prompt.ask("ユーザー名", default="postgres")
+        while 'pg_host' not in settings:
+            pg_host = Prompt.ask("ホスト", default=pg_host)
+            pg_port = IntPrompt.ask("ポート", default=pg_port)
+            pg_database = Prompt.ask("データベース名", default=pg_database)
+            pg_user = Prompt.ask("ユーザー名", default=pg_user)
 
-            # パスワード入力（マスク表示、デフォルトpostgres）
-            pg_password = Prompt.ask("パスワード", default="postgres", password=True)
+            # パスワード入力（マスク表示）
+            pg_password = Prompt.ask("パスワード", default=pg_password or "postgres", password=True)
 
             console.print()
             console.print("[cyan]データベース確認中...[/cyan]")
@@ -1679,8 +1738,17 @@ def _interactive_setup_rich() -> dict:
             settings['pg_port'] = last_setup.get('pg_port', 5432)
             settings['pg_database'] = last_setup.get('pg_database', 'keiba')
             settings['pg_user'] = last_setup.get('pg_user', 'postgres')
-            # パスワードは環境変数から取得、なければ入力を求める
+            # パスワードは環境変数→config→入力の順で取得
             settings['pg_password'] = os.environ.get('PGPASSWORD', '')
+            if not settings['pg_password']:
+                try:
+                    from src.utils.config import load_config
+                    _cfg = load_config(str(Path(__file__).resolve().parent.parent / "config" / "config.yaml"))
+                    _pw = _cfg.get("databases.postgresql.password", "")
+                    if _pw and not str(_pw).startswith("${"):
+                        settings['pg_password'] = _pw
+                except Exception:
+                    pass
             if not settings['pg_password']:
                 console.print()
                 console.print("[yellow]PostgreSQLパスワードが必要です[/yellow]")
@@ -1999,19 +2067,64 @@ def _interactive_setup_simple() -> dict:
     if db_choice == "2":
         # PostgreSQL
         settings['db_type'] = 'postgresql'
-        print()
-        print("PostgreSQL接続設定:")
-        print()
 
-        while True:
-            pg_host = input("ホスト [localhost]: ").strip() or "localhost"
-            pg_port = input("ポート [5432]: ").strip() or "5432"
-            pg_port = int(pg_port)
-            pg_database = input("データベース名 [keiba]: ").strip() or "keiba"
-            pg_user = input("ユーザー名 [postgres]: ").strip() or "postgres"
+        # config/config.yaml から接続情報を読み込み
+        pg_host = "localhost"
+        pg_port = 5432
+        pg_database = "keiba"
+        pg_user = "postgres"
+        pg_password = ""
+        try:
+            from src.utils.config import load_config
+            _cfg = load_config(str(Path(__file__).resolve().parent.parent / "config" / "config.yaml"))
+            pg_host = _cfg.get("databases.postgresql.host", pg_host)
+            pg_port = int(_cfg.get("databases.postgresql.port", pg_port))
+            pg_database = _cfg.get("databases.postgresql.database", pg_database)
+            pg_user = _cfg.get("databases.postgresql.user", pg_user)
+            pg_password = _cfg.get("databases.postgresql.password", pg_password) or ""
+            if pg_password.startswith("${"):
+                pg_password = ""
+            if str(pg_host).startswith("${"):
+                pg_host = "localhost"
+            if str(pg_user).startswith("${"):
+                pg_user = "postgres"
+        except Exception:
+            pass
+        if not pg_password:
+            pg_password = os.environ.get('PGPASSWORD', '')
+
+        # 接続情報が揃っていればテストしてそのまま使う
+        if pg_host and pg_user and pg_password:
+            print()
+            print(f"PostgreSQL接続: {pg_user}@{pg_host}:{pg_port}/{pg_database}")
+            print("接続テスト中...")
+            status, message = _check_postgresql_database(
+                pg_host, pg_port, pg_database, pg_user, pg_password
+            )
+            if status in ("created", "exists"):
+                print(f"[OK] {message}")
+                settings['pg_host'] = pg_host
+                settings['pg_port'] = pg_port
+                settings['pg_database'] = pg_database
+                settings['pg_user'] = pg_user
+                settings['pg_password'] = pg_password
+                if status == "exists":
+                    print("既存データベースを使用します")
+
+        if 'pg_host' not in settings:
+            print()
+            print("PostgreSQL接続設定:")
+            print()
+
+        while 'pg_host' not in settings:
+            pg_host = input(f"ホスト [{pg_host}]: ").strip() or pg_host
+            pg_port_str = input(f"ポート [{pg_port}]: ").strip() or str(pg_port)
+            pg_port = int(pg_port_str)
+            pg_database = input(f"データベース名 [{pg_database}]: ").strip() or pg_database
+            pg_user = input(f"ユーザー名 [{pg_user}]: ").strip() or pg_user
 
             import getpass
-            pg_password = getpass.getpass("パスワード [postgres]: ") or "postgres"
+            pg_password = getpass.getpass(f"パスワード: ") or pg_password
 
             print()
             print("データベース確認中...")
