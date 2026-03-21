@@ -533,9 +533,13 @@ try:
     if rc != 0:
         if rc == -203:
             print("SETUP_NEEDED:-203")
+            sys.exit(0)
+        elif rc in (-301, -302):
+            # -301/-302: サーバー認証系だがデータ取得は続行可能(~/jra準拠)
+            pass
         else:
             print(f"OPEN_ERROR:{rc}")
-        sys.exit(0)
+            sys.exit(0)
 
     # Wait for download if needed
     if download_count > 0:
@@ -696,8 +700,12 @@ try:
             sys.exit(0)
 
     if rc != 0:
-        print(f"OPEN_ERROR:{rc}")
-        sys.exit(0)
+        if rc in (-301, -302):
+            # -301/-302: サーバー認証系だがデータ取得は続行可能(~/jra準拠)
+            pass
+        else:
+            print(f"OPEN_ERROR:{rc}")
+            sys.exit(0)
 
     print(f"OPEN_OK:read={read_count},dl={dl_count}")
 
