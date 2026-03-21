@@ -1226,11 +1226,12 @@ def _interactive_setup_rich() -> dict:
             pass
 
         # 前回のセットアップ履歴からも引き継ぎ
-        if last_setup and last_setup.get('db_type') == 'postgresql':
-            pg_host = last_setup.get('pg_host', pg_host)
-            pg_port = last_setup.get('pg_port', pg_port)
-            pg_database = last_setup.get('pg_database', pg_database)
-            pg_user = last_setup.get('pg_user', pg_user)
+        _last = _load_setup_history()
+        if _last and _last.get('db_type') == 'postgresql':
+            pg_host = _last.get('pg_host', pg_host)
+            pg_port = _last.get('pg_port', pg_port)
+            pg_database = _last.get('pg_database', pg_database)
+            pg_user = _last.get('pg_user', pg_user)
 
         # 環境変数からパスワード取得
         if not pg_password:
