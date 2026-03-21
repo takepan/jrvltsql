@@ -397,7 +397,7 @@ try:
     sk = os.environ.get("_NVLINK_SK", "")
     if sk:
         import subprocess as _sp
-        _sp.run(['reg', 'add', r'HKLM\SOFTWARE\NAR\NVDTLabLib', '/v', 'ServiceKey', '/t', 'REG_SZ', '/d', sk, '/f'],
+        _sp.run(['reg', 'add', 'HKLM\\\\SOFTWARE\\\\NAR\\\\NVDTLabLib', '/v', 'ServiceKey', '/t', 'REG_SZ', '/d', sk, '/f'],
                 capture_output=True, text=True)
     result = nvlink.NVInit("UNKNOWN")
     print(f"RESULT:{result}")
@@ -494,7 +494,7 @@ try:
     sk = os.environ.get("_NVLINK_SK", "")
     if sk:
         import subprocess as _sp
-        _sp.run(['reg', 'add', r'HKLM\SOFTWARE\NAR\NVDTLabLib', '/v', 'ServiceKey', '/t', 'REG_SZ', '/d', sk, '/f'],
+        _sp.run(['reg', 'add', 'HKLM\\\\SOFTWARE\\\\NAR\\\\NVDTLabLib', '/v', 'ServiceKey', '/t', 'REG_SZ', '/d', sk, '/f'],
                 capture_output=True, text=True)
 
     # Initialize
@@ -658,7 +658,7 @@ try:
     sk = os.environ.get("_NVLINK_SK", "")
     if sk:
         import subprocess as _sp
-        _sp.run(['reg', 'add', r'HKLM\SOFTWARE\NAR\NVDTLabLib', '/v', 'ServiceKey', '/t', 'REG_SZ', '/d', sk, '/f'],
+        _sp.run(['reg', 'add', 'HKLM\\\\SOFTWARE\\\\NAR\\\\NVDTLabLib', '/v', 'ServiceKey', '/t', 'REG_SZ', '/d', sk, '/f'],
                 capture_output=True, text=True)
 
     init_result = nvlink.NVInit("UNKNOWN")
