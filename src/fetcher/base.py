@@ -271,16 +271,18 @@ class BaseFetcher(ABC):
                         last_update_time = current_time
 
                 elif ret_code in (-3, -201, -202, -203, -402, -403, -502, -503):
-                    # -3 連続エラー上限チェック (未DLファイル大量時の無限ループ防止)
-                    if ret_code == -3:
+                    # -3/-203 連続エラー上限チェック (無限ループ防止)
+                    # ~/jra/fetch_nar_daily.py準拠: -203はサイレントスキップ
+                    if ret_code in (-3, -203):
                         consecutive_downloading_errors += 1
                         if consecutive_downloading_errors >= max_consecutive_downloading:
                             logger.warning(
-                                f"NVRead -3 (downloading) が {max_consecutive_downloading} 回連続。"
-                                "未ダウンロードファイルが多すぎるため打ち切ります。"
-                                "UmaConn設定.exe で初期データDLを完了してから再実行してください。"
+                                f"NVRead {ret_code} が {max_consecutive_downloading} 回連続。打ち切ります。"
                             )
                             break
+                        # -203はサイレントにスキップ（~/jra準拠、ログ溢れ防止）
+                        if ret_code == -203:
+                            continue
                     else:
                         consecutive_downloading_errors = 0
 
