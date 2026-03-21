@@ -457,14 +457,21 @@ class NVLinkWrapper:
                 if result == -202:
                     raise NVLinkError("NVOpen failed: stream still open after NVClose", error_code=-202)
 
-            # Check for authentication errors first (-301, -302, -303)
-            if result in (-301, -302, -303):
-                if result == -301:
-                    error_msg = "認証エラー: サーバー認証に失敗しました。サービスキーを確認してください。"
-                elif result == -302:
-                    error_msg = "認証エラー: 利用キーが不正または有効期限切れです。"
-                else:
-                    error_msg = "認証エラー: 利用キーが設定されていません。地方競馬DATAセットアップツールで設定してください。"
+            # -301/-302: ダウンロード中/待ち（wrapper_32bit.py準拠で続行可能）
+            if result in (-301, -302):
+                self._is_open = True
+                if download_count == 0:
+                    download_count = 1
+                logger.info(
+                    "NVOpen: Download pending",
+                    data_spec=data_spec,
+                    status_code=result,
+                )
+                return result, read_count, download_count, last_file_timestamp
+
+            # -303: 利用キー未設定（これは本当のエラー）
+            if result == -303:
+                error_msg = "認証エラー: 利用キーが設定されていません。地方競馬DATAセットアップツールで設定してください。"
                 logger.error(
                     error_msg,
                     data_spec=data_spec,

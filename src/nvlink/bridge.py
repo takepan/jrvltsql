@@ -322,14 +322,18 @@ class NVLinkBridge:
             download_count = response.get("downloadcount", 0)
             last_ts = response.get("lastfiletimestamp", "")
 
-        # Authentication errors
-        if code in (-301, -302, -303):
-            error_msgs = {
-                -301: "認証エラー: サーバー認証に失敗しました。",
-                -302: "認証エラー: 利用キーが不正または有効期限切れです。",
-                -303: "認証エラー: 利用キーが設定されていません。",
-            }
-            raise NVLinkBridgeError(error_msgs.get(code, "認証エラー"), error_code=code)
+        # -301/-302: ダウンロード中/待ち（wrapper_32bit.py準拠で続行可能）
+        if code in (-301, -302):
+            if download_count == 0:
+                download_count = 1
+            return code, read_count, download_count, last_ts
+
+        # -303: 利用キー未設定（本当のエラー）
+        if code == -303:
+            raise NVLinkBridgeError(
+                "認証エラー: 利用キーが設定されていません。",
+                error_code=code,
+            )
 
         # Other fatal errors
         if code < -2 and code not in (-1, -2):
