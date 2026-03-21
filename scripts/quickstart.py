@@ -352,9 +352,23 @@ def _check_jvlink_service_key() -> tuple[bool, str]:
             return False, f"JV-Link未インストールまたはアクセス不可: {e}"
 
 
+def _get_nvlink_service_key() -> str:
+    """config/config.yaml から NV-Link サービスキーを読み取る"""
+    try:
+        from src.utils.config import load_config
+        config_path = Path(__file__).resolve().parent.parent / "config" / "config.yaml"
+        config = load_config(str(config_path))
+        sk = config.get("nvlink.service_key", "")
+        if sk and not sk.startswith("${"):
+            return sk
+    except Exception:
+        pass
+    return os.environ.get("NVLINK_SERVICE_KEY", "")
+
+
 def _check_nvlink_service_key() -> tuple[bool, str]:
     """NV-Link（UmaConn）のサービスキー設定状況を実際にAPIで確認
-    
+
     Note:
         64-bit Python環境でのCOM初期化(STAモード)を確実に有効にするため、
         現在のプロセスではなく、独立したサブプロセスでチェックを行います。
@@ -365,9 +379,10 @@ def _check_nvlink_service_key() -> tuple[bool, str]:
     """
     import subprocess
     import sys
-    
+
     # 独立したプロセスで実行する検証コード
     check_code = """
+import os
 import sys
 try:
     sys.coinit_flags = 2  # STA mode
@@ -379,13 +394,22 @@ import pythoncom
 try:
     pythoncom.CoInitialize()
     nvlink = win32com.client.Dispatch("NVDTLabLib.NVLink")
+    sk = os.environ.get("_NVLINK_SK", "")
+    if sk:
+        nvlink.NVSetServiceKey(sk)
     result = nvlink.NVInit("UNKNOWN")
     print(f"RESULT:{result}")
 except Exception as e:
     print(f"ERROR:{e}")
 """
-    
+
     try:
+        # サブプロセス用の環境変数にサービスキーを渡す
+        env = os.environ.copy()
+        sk = _get_nvlink_service_key()
+        if sk:
+            env["_NVLINK_SK"] = sk
+
         # サブプロセスで実行
         proc = subprocess.run(
             [sys.executable, "-c", check_code],
@@ -393,7 +417,8 @@ except Exception as e:
             text=True,
             encoding='utf-8', # Force UTF-8 for communication
             timeout=30,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0,
+            env=env,
         )
         
         output = proc.stdout.strip()
@@ -441,6 +466,7 @@ def _check_nar_initial_setup() -> tuple[bool, str]:
     import sys
 
     check_code = """
+import os
 import sys
 import time
 import ctypes
@@ -461,6 +487,11 @@ try:
         nvlink.ParentHWnd = hwnd
     except Exception:
         pass
+
+    # Set service key from config (passed via environment variable)
+    sk = os.environ.get("_NVLINK_SK", "")
+    if sk:
+        nvlink.NVSetServiceKey(sk)
 
     # Initialize
     init_result = nvlink.NVInit("UNKNOWN")
@@ -541,13 +572,19 @@ except Exception as e:
 """
 
     try:
+        env = os.environ.copy()
+        sk = _get_nvlink_service_key()
+        if sk:
+            env["_NVLINK_SK"] = sk
+
         proc = subprocess.run(
             [sys.executable, "-c", check_code],
             capture_output=True,
             text=True,
             encoding='utf-8',
             timeout=30,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0,
+            env=env,
         )
 
         output = proc.stdout.strip()
@@ -591,6 +628,7 @@ def _run_nar_initial_setup(console=None, show_progress: bool = True) -> tuple[bo
 
     # Run NVOpen option=4 (Setup) to download base data
     setup_code = """
+import os
 import sys
 import time
 import ctypes
@@ -611,6 +649,11 @@ try:
         nvlink.ParentHWnd = hwnd
     except Exception:
         pass
+
+    # Set service key from config (passed via environment variable)
+    sk = os.environ.get("_NVLINK_SK", "")
+    if sk:
+        nvlink.NVSetServiceKey(sk)
 
     init_result = nvlink.NVInit("UNKNOWN")
     if init_result != 0:
@@ -692,13 +735,19 @@ except Exception as e:
         console.print()
 
     try:
+        env = os.environ.copy()
+        sk = _get_nvlink_service_key()
+        if sk:
+            env["_NVLINK_SK"] = sk
+
         proc = subprocess.run(
             [sys.executable, "-c", setup_code],
             capture_output=True,
             text=True,
             encoding='utf-8',
             timeout=3600,  # 1 hour max
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0,
+            env=env,
         )
 
         output = proc.stdout.strip()
