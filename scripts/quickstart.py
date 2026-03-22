@@ -3709,9 +3709,16 @@ class QuickstartRunner:
 
     # === リアルタイムデータ取得（JVRTOpen）===
 
+    # NARでは利用不可のdataspec
+    NAR_UNSUPPORTED_RT_SPECS = {"0B13", "0B17", "0B41", "0B42", "0B51"}
+
     def _run_fetch_realtime_rich(self) -> bool:
         """リアルタイムデータ取得（Rich UI）- 速報系 + 時系列"""
-        speed_specs = self.SPEED_REPORT_SPECS
+        data_source_str = self.settings.get('data_source', 'jra')
+        if data_source_str == 'nar':
+            speed_specs = [(s, d) for s, d in self.SPEED_REPORT_SPECS if s not in self.NAR_UNSUPPORTED_RT_SPECS]
+        else:
+            speed_specs = self.SPEED_REPORT_SPECS
         time_specs = self.TIME_SERIES_SPECS
         total_specs = len(speed_specs) + len(time_specs)
 
