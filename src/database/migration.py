@@ -39,6 +39,8 @@ def _extract_columns_from_sql(create_sql: str) -> Optional[Set[str]]:
     body = re.sub(r'PRIMARY\s+KEY\s*\([^)]*\)', '', body, flags=re.IGNORECASE)
     body = re.sub(r'UNIQUE\s*\([^)]*\)', '', body, flags=re.IGNORECASE)
     body = re.sub(r'FOREIGN\s+KEY\s*\([^)]*\)\s*REFERENCES\s*[^,)]*', '', body, flags=re.IGNORECASE)
+    # Remove type parameters e.g. NUMERIC(8,1), DECIMAL(10,2), VARCHAR(255)
+    body = re.sub(r'\(\s*\d+(?:\s*,\s*\d+)?\s*\)', '', body)
 
     columns = set()
     for line in body.split(','):
