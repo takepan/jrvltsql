@@ -74,6 +74,7 @@ class RealtimeUpdater:
 
         # 0B30-0B36: オッズ情報
         "O1": "RT_O1",  # オッズ（単勝・複勝）
+        "O1W": "RT_O1_WAKU",  # オッズ（枠連）
         "O2": "RT_O2",  # オッズ（枠連）
         "O3": "RT_O3",  # オッズ（馬連）
         "O4": "RT_O4",  # オッズ（ワイド）
@@ -94,7 +95,8 @@ class RealtimeUpdater:
     # 時系列オッズ専用テーブルマッピング (TS_O1-O6)
     # HassoTimeをPRIMARY KEYに含めて複数時点のデータを保持
     TIMESERIES_RECORD_TYPE_TABLE = {
-        "O1": "TS_O1",  # 単複枠オッズ時系列
+        "O1": "TS_O1",  # 単複オッズ時系列
+        "O1W": "TS_O1_WAKU",  # 枠連オッズ時系列
         "O2": "TS_O2",  # 馬連オッズ時系列
         "O3": "TS_O3",  # ワイドオッズ時系列
         "O4": "TS_O4",  # 馬単オッズ時系列
@@ -175,7 +177,7 @@ class RealtimeUpdater:
                 table_name = self.RECORD_TYPE_TABLE.get(record_type)
 
             if not table_name:
-                logger.warning(f"Unknown record type: {record_type}")
+                logger.debug(f"Skipping unmapped record type: {record_type}")
                 return None
 
             # Add _NAR suffix for NAR data source

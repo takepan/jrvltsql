@@ -2563,6 +2563,26 @@ SCHEMAS = {
             PRIMARY KEY (Year, MonthDay, JyoCD, Kaiji, Nichiji, RaceNum, Umaban, HassoTime)
         )
     """,
+    "TS_O1_WAKU": """
+        CREATE TABLE IF NOT EXISTS TS_O1_WAKU (
+            RecordSpec TEXT,
+            DataKubun TEXT,
+            MakeDate TEXT,
+            Year INTEGER,
+            MonthDay INTEGER,
+            JyoCD TEXT,
+            Kaiji INTEGER,
+            Nichiji INTEGER,
+            RaceNum INTEGER,
+            HassoTime TEXT,
+            WakurenFlag TEXT,
+            Kumi TEXT,
+            WakurenOdds NUMERIC(8,1),
+            WakurenNinki INTEGER,
+            WakurenVote BIGINT,
+            PRIMARY KEY (Year, MonthDay, JyoCD, Kaiji, Nichiji, RaceNum, Kumi, HassoTime)
+        )
+    """,
     "TS_O2": """
         CREATE TABLE IF NOT EXISTS TS_O2 (
             RecordSpec TEXT,
