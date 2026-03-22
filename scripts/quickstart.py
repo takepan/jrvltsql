@@ -4305,8 +4305,6 @@ class QuickstartRunner:
                 details['records_fetched'] = result.get('records_fetched', 0)
                 details['records_parsed'] = result.get('records_parsed', 0)
                 details['records_saved'] = result.get('records_imported', 0)
-
-                # 成功判定
                 if result.get('records_fetched', 0) == 0:
                     return ("nodata", details)
 
