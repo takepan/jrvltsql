@@ -233,10 +233,6 @@ class BaseFetcher(ABC):
                                 yield record_item
                         else:
                             self._records_failed += 1
-                            logger.warning(
-                                "Failed to parse record",
-                                record_num=self._records_fetched,
-                            )
 
                     except Exception as e:
                         self._records_failed += 1

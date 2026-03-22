@@ -53,6 +53,7 @@ class ParserFactory:
         """Initialize parser factory with dynamic parser loading."""
         self._parsers: Dict[str, Any] = {}
         self._parser_classes: Dict[str, Any] = {}
+        self._unsupported_types: set = set()
 
         logger.info("ParserFactory initialized", total_types=len(ALL_RECORD_TYPES))
 
@@ -80,7 +81,9 @@ class ParserFactory:
             return parser_class
 
         except (ImportError, AttributeError) as e:
-            logger.warning(f"Failed to load parser for {record_type}: {e}")
+            if record_type not in self._unsupported_types:
+                self._unsupported_types.add(record_type)
+                logger.debug(f"No parser module for {record_type}: {e}")
             return None
 
     def get_parser(self, record_type: str):
@@ -116,7 +119,6 @@ class ParserFactory:
         if record_type not in self._parser_classes:
             parser_class = self._load_parser_class(resolved_type)
             if not parser_class:
-                logger.warning(f"No parser available for record type: {record_type}")
                 return None
             self._parser_classes[record_type] = parser_class
 
@@ -163,7 +165,6 @@ class ParserFactory:
             parser = self.get_parser(record_type)
 
             if not parser:
-                logger.warning(f"No parser available for record type: {record_type}")
                 return None
 
             parsed_result = parser.parse(record)
