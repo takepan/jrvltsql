@@ -3243,23 +3243,36 @@ class QuickstartRunner:
             nodata_count = 0
             skipped_count = 0
             failed_count = 0
-            global_processed = 0  # 全体の処理済みアイテム数
-            cumulative_records = 0  # 累計レコード数（リアルタイム表示用）
+            global_processed = 0
+            cumulative_records = 0
+            BATCH_SIZE = 1000  # バッチINSERTサイズ
 
             with db:
-                fetcher = RealtimeFetcher(sid="JLTSQL", data_source=data_source)
-                updater = RealtimeUpdater(db)
+                # ~/jra/fetch_ts_odds.py準拠: jv_init 1回、レースごとにjv_rt_open/close
+                from src.parser.factory import ParserFactory
+                ts_parser = ParserFactory()
+                updater = RealtimeUpdater(db, data_source=data_source)
 
-                # JVLinkProgressDisplayを使用してリッチな進捗表示
+                # JV-Link/NV-Link初期化（1回だけ）
+                if data_source == DataSource.NAR:
+                    import struct
+                    if struct.calcsize("P") * 8 == 32:
+                        from src.nvlink.wrapper_32bit import NVLinkWrapper as _Wrapper
+                    else:
+                        from src.nvlink.wrapper import NVLinkWrapper as _Wrapper
+                    wrapper = _Wrapper(sid="JLTSQL")
+                else:
+                    from src.jvlink.wrapper import JVLinkWrapper as _Wrapper
+                    wrapper = _Wrapper(sid="JLTSQL")
+                wrapper.jv_init()
+
                 progress = JVLinkProgressDisplay()
 
                 with progress:
-                    # ダウンロード進捗タスク
                     download_task = progress.add_download_task(
                         "時系列オッズ取得",
                         total=total_items,
                     )
-                    # メイン処理タスク
                     main_task = progress.add_task(
                         "レコード処理",
                         total=total_items,
@@ -3267,70 +3280,73 @@ class QuickstartRunner:
 
                     start_time = time.time()
 
-                    # 各スペックを順番に処理
                     for spec_idx, (spec, desc) in enumerate(timeseries_specs, 1):
                         spec_records = 0
                         status = "success"
                         error_msg = ""
 
                         try:
-                            # 開催レースごとに取得
                             for race_idx, race_info in enumerate(races, 1):
                                 race_date, jyo_code, kaiji, nichiji, race_num = race_info
                                 global_processed += 1
 
-                                # 進捗表示を更新
                                 track_name = jyo_codes.get(jyo_code, jyo_code)
                                 progress.update_download(
                                     download_task,
                                     completed=global_processed,
                                     status=f"{spec} {track_name}{race_num}R",
                                 )
-                                progress.update(
-                                    main_task,
-                                    completed=global_processed,
-                                    status=f"({global_processed}/{total_items})",
-                                )
 
                                 try:
-                                    # 16桁フルキーを生成して取得
                                     full_key = generate_key(
                                         race_date, jyo_code, kaiji, nichiji, race_num
                                     )
-                                    for record in fetcher.fetch(
-                                        data_spec=spec,
-                                        key=full_key,
-                                        continuous=False,
-                                    ):
-                                        raw_buff = record.get("_raw", "")
-                                        if raw_buff:
-                                            updater.process_record(raw_buff, timeseries=True)
-                                            spec_records += 1
-                                            cumulative_records += 1
+                                    # jv_rt_open → jv_read loop → jv_close（~/jra準拠）
+                                    try:
+                                        ret, read_count = wrapper.jv_rt_open(spec, full_key)
+                                    except Exception:
+                                        ret = -1
+                                        read_count = 0
+                                    if ret < 0:
+                                        try:
+                                            wrapper.jv_close()
+                                        except Exception:
+                                            pass
+                                    else:
+                                        while True:
+                                            ret_code, buff, fn = wrapper.jv_read()
+                                            if ret_code == 0:
+                                                break
+                                            if ret_code == -1:
+                                                continue
+                                            if ret_code < -1:
+                                                continue
+                                            if buff:
+                                                updater.process_record(buff, timeseries=True)
+                                                spec_records += 1
+                                                cumulative_records += 1
+                                        wrapper.jv_close()
 
-                                    # 統計を更新（リアルタイム）
-                                    elapsed = time.time() - start_time
-                                    speed = cumulative_records / elapsed if elapsed > 0 else 0
-                                    progress.update_stats(
-                                        fetched=cumulative_records,
-                                        parsed=cumulative_records,
-                                        skipped=skipped_count,
-                                        failed=failed_count,
-                                        speed=speed,
-                                    )
+                                    # 進捗更新（10レースごと）
+                                    if race_idx % 10 == 0:
+                                        elapsed = time.time() - start_time
+                                        speed = cumulative_records / elapsed if elapsed > 0 else 0
+                                        progress.update(main_task, completed=global_processed)
+                                        progress.update_stats(
+                                            fetched=cumulative_records,
+                                            parsed=cumulative_records,
+                                            speed=speed,
+                                        )
 
                                 except Exception as e:
                                     error_str = str(e)
                                     if '-111' in error_str or '-114' in error_str:
-                                        # dataspec不正はスキップ
                                         status = "skipped"
                                         error_msg = "dataspec不正"
                                         break
-                                    # -1はデータなし（正常）
                                     elif '-1' not in error_str:
-                                        # その他のエラーを記録
                                         status = "failed"
-                                        error_msg = error_str[:80] if len(error_str) > 80 else error_str
+                                        error_msg = error_str[:80]
                                         break
 
                         except Exception as e:
@@ -3342,7 +3358,6 @@ class QuickstartRunner:
                                 status = "failed"
                                 error_msg = error_str[:80]
 
-                        # スペックごとの結果を集計
                         if status == "success":
                             if spec_records > 0:
                                 success_count += 1
@@ -3352,12 +3367,10 @@ class QuickstartRunner:
                         elif status == "skipped":
                             skipped_count += 1
                             self.warnings.append(f"時系列{spec}: {error_msg}")
-                            # dataspec不正の場合、残りのレースをスキップ
                             global_processed = spec_idx * total_races
                         else:
                             failed_count += 1
 
-                        # スペック処理後の統計更新（スキップ/失敗時に表示を更新）
                         elapsed = time.time() - start_time
                         speed = cumulative_records / elapsed if elapsed > 0 else 0
                         progress.update_stats(
@@ -3380,6 +3393,12 @@ class QuickstartRunner:
                         failed=failed_count,
                         speed=speed,
                     )
+
+            # wrapper cleanup
+            try:
+                wrapper.cleanup()
+            except Exception:
+                pass
 
             # 完了メッセージ
             elapsed = time.time() - start_time
