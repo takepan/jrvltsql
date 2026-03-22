@@ -1817,18 +1817,19 @@ def _interactive_setup_rich() -> dict:
         ts_period_table.add_column("期間", width=15)
         ts_period_table.add_column("説明", width=40)
 
-        ts_period_table.add_row("1", "過去1ヶ月", "[dim]直近のオッズ変動のみ[/dim]")
-        ts_period_table.add_row("2", "過去3ヶ月", "[green]短期分析向け（推奨）[/green]")
-        ts_period_table.add_row("3", "過去6ヶ月", "[dim]中期分析向け[/dim]")
-        ts_period_table.add_row("4", "過去12ヶ月", "[dim]1年分（公式サポート期間）[/dim]")
-        ts_period_table.add_row("5", "カスタム", "[yellow]任意の期間を指定（公式サポート外の可能性あり）[/yellow]")
+        ts_period_table.add_row("1", "過去1週間", "[dim]テスト・動作確認向け[/dim]")
+        ts_period_table.add_row("2", "過去1ヶ月", "[dim]直近のオッズ変動のみ[/dim]")
+        ts_period_table.add_row("3", "過去3ヶ月", "[green]短期分析向け（推奨）[/green]")
+        ts_period_table.add_row("4", "過去6ヶ月", "[dim]中期分析向け[/dim]")
+        ts_period_table.add_row("5", "過去12ヶ月", "[dim]1年分（公式サポート期間）[/dim]")
+        ts_period_table.add_row("6", "カスタム", "[yellow]任意の期間を指定（公式サポート外の可能性あり）[/yellow]")
 
         console.print(ts_period_table)
         console.print()
 
-        ts_choice = Prompt.ask("期間を選択", choices=["1", "2", "3", "4", "5"], default="2")
+        ts_choice = Prompt.ask("期間を選択", choices=["1", "2", "3", "4", "5", "6"], default="1")
 
-        if ts_choice == "5":
+        if ts_choice == "6":
             # カスタム期間入力
             today = datetime.now()
 
@@ -1871,12 +1872,14 @@ def _interactive_setup_rich() -> dict:
             settings['timeseries_custom'] = True
             console.print(f"[dim]取得期間: {settings['timeseries_from_date'][:4]}/{settings['timeseries_from_date'][4:6]}/{settings['timeseries_from_date'][6:]} 〜 {settings['timeseries_to_date'][:4]}/{settings['timeseries_to_date'][4:6]}/{settings['timeseries_to_date'][6:]}[/dim]")
         else:
-            ts_months_map = {"1": 1, "2": 3, "3": 6, "4": 12}
+            ts_months_map = {"1": 0.25, "2": 1, "3": 3, "4": 6, "5": 12}
             settings['timeseries_months'] = ts_months_map[ts_choice]
             settings['timeseries_custom'] = False
 
             months = settings['timeseries_months']
-            if months == 1:
+            if months < 1:
+                console.print(f"[dim]取得期間: 過去1週間[/dim]")
+            elif months == 1:
                 console.print(f"[dim]取得期間: 過去1ヶ月[/dim]")
             else:
                 console.print(f"[dim]取得期間: 過去{months}ヶ月[/dim]")
@@ -2484,16 +2487,17 @@ def _interactive_setup_simple() -> dict:
         # 期間選択
         print()
         print("   取得期間を選択してください:")
-        print("   1) 過去1ヶ月  - 直近のオッズ変動のみ")
-        print("   2) 過去3ヶ月  - 短期分析向け（推奨）")
-        print("   3) 過去6ヶ月  - 中期分析向け")
-        print("   4) 過去12ヶ月 - 1年分（公式サポート期間）")
-        print("   5) カスタム   - 任意の期間を指定（公式サポート外の可能性あり）")
+        print("   1) 過去1週間  - テスト・動作確認向け")
+        print("   2) 過去1ヶ月  - 直近のオッズ変動のみ")
+        print("   3) 過去3ヶ月  - 短期分析向け（推奨）")
+        print("   4) 過去6ヶ月  - 中期分析向け")
+        print("   5) 過去12ヶ月 - 1年分（公式サポート期間）")
+        print("   6) カスタム   - 任意の期間を指定（公式サポート外の可能性あり）")
         print()
-        print("   期間を選択 [1-5] (デフォルト: 2): ", end="")
+        print("   期間を選択 [1-6] (デフォルト: 1): ", end="")
         ts_period_input = input().strip()
 
-        if ts_period_input == "5":
+        if ts_period_input == "6":
             # カスタム期間入力
             today = datetime.now()
 
@@ -2542,19 +2546,21 @@ def _interactive_setup_simple() -> dict:
             settings['timeseries_months'] = 0
             settings['timeseries_custom'] = True
             print(f"   -> 取得期間: {settings['timeseries_from_date'][:4]}/{settings['timeseries_from_date'][4:6]}/{settings['timeseries_from_date'][6:]} 〜 {settings['timeseries_to_date'][:4]}/{settings['timeseries_to_date'][4:6]}/{settings['timeseries_to_date'][6:]}")
-        elif ts_period_input in ('1', '2', '3', '4'):
-            ts_months_map = {"1": 1, "2": 3, "3": 6, "4": 12}
+        elif ts_period_input in ('1', '2', '3', '4', '5'):
+            ts_months_map = {"1": 0.25, "2": 1, "3": 3, "4": 6, "5": 12}
             settings['timeseries_months'] = ts_months_map[ts_period_input]
             settings['timeseries_custom'] = False
 
             months = settings['timeseries_months']
-            if months == 1:
+            if months < 1:
+                print(f"   -> 過去1週間の時系列オッズを取得します")
+            elif months == 1:
                 print(f"   -> 過去1ヶ月の時系列オッズを取得します")
             else:
-                print(f"   -> 過去{months}ヶ月の時系列オッズを取得します")
+                print(f"   -> 過去{int(months)}ヶ月の時系列オッズを取得します")
         else:
-            # デフォルト: 3ヶ月
-            settings['timeseries_months'] = 3
+            # デフォルト: 1週間
+            settings['timeseries_months'] = 0.25
             settings['timeseries_custom'] = False
             print(f"   -> 過去3ヶ月の時系列オッズを取得します")
     else:
@@ -3126,12 +3132,14 @@ class QuickstartRunner:
             to_date = today.strftime("%Y%m%d")
 
             # 期間の表示用テキスト
-            if months == 1:
+            if months < 1:
+                period_text = "過去1週間"
+            elif months == 1:
                 period_text = "過去1ヶ月"
             elif months == 12:
                 period_text = "過去1年間"
             else:
-                period_text = f"過去{months}ヶ月"
+                period_text = f"過去{int(months)}ヶ月"
 
         # 時系列オッズスペック（0B30-0B36）
         timeseries_specs = [
