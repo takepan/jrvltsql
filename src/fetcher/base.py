@@ -77,9 +77,20 @@ class BaseFetcher(ABC):
                     sid, initialization_key=initialization_key, bridge_path=bridge_exe
                 )
             else:
-                logger.warning("NVLinkBridge not found, falling back to Python COM wrapper")
-                from src.nvlink.wrapper import NVLinkWrapper
-                self.jvlink = NVLinkWrapper(sid, initialization_key=initialization_key)
+                # 32-bit Pythonなら直接COM呼び出し、64-bitでは動作しない
+                import struct
+                if struct.calcsize("P") * 8 == 32:
+                    logger.info("Using NVLinkWrapper (32-bit direct COM) for NAR")
+                    from src.nvlink.wrapper_32bit import NVLinkWrapper as NVLinkWrapper32
+                    self.jvlink = NVLinkWrapper32(sid, initialization_key=initialization_key)
+                else:
+                    logger.warning(
+                        "NVLinkBridge not found and running 64-bit Python. "
+                        "NV-Link requires 32-bit Python or C# bridge. "
+                        "Falling back to 64-bit COM wrapper (may not work correctly)."
+                    )
+                    from src.nvlink.wrapper import NVLinkWrapper
+                    self.jvlink = NVLinkWrapper(sid, initialization_key=initialization_key)
         else:
             # Prefer C# JVLinkBridge over Python win32com for JRA operations.
             # Eliminates 32-bit Python requirement and COM instability.
@@ -96,6 +107,7 @@ class BaseFetcher(ABC):
         self._records_fetched = 0
         self._records_parsed = 0
         self._records_failed = 0
+        self._download_aborted = False
         self._files_processed = 0
         self._total_files = 0
         self._service_key = service_key
@@ -418,6 +430,7 @@ class BaseFetcher(ABC):
             "records_fetched": self._records_fetched,
             "records_parsed": self._records_parsed,
             "records_failed": self._records_failed,
+            "download_aborted": self._download_aborted,
         }
 
     def reset_statistics(self):
@@ -425,6 +438,7 @@ class BaseFetcher(ABC):
         self._records_fetched = 0
         self._records_parsed = 0
         self._records_failed = 0
+        self._download_aborted = False
 
     def _is_within_date_range(self, data: dict, to_date: str) -> bool:
         """Check if a record's date is within the specified range (up to to_date).

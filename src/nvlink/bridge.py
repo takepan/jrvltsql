@@ -432,7 +432,10 @@ class NVLinkBridge:
 
         elif code in (-203, -402, -403, -502, -503):
             filename = response.get("filename", "")
-            logger.warning("NVRead recoverable error via bridge", code=code, filename=filename)
+            if code == -203:
+                logger.debug("NVRead recoverable error via bridge", code=code, filename=filename)
+            else:
+                logger.warning("NVRead recoverable error via bridge", code=code, filename=filename)
             return code, None, filename
 
         else:

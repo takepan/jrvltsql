@@ -181,7 +181,25 @@ class HistoricalFetcher(BaseFetcher):
                             total=100,
                         )
                     try:
-                        self._wait_for_download(download_task_id)
+                        download_ok = self._wait_for_download(download_task_id)
+                        if not download_ok:
+                            logger.warning(
+                                "NV-Link download failed (-203). "
+                                "NV-Link environment may not be configured on this PC. "
+                                "Use fetch_nar_daily.py on a PC where UmaConn works.",
+                                data_spec=data_spec,
+                            )
+                            if self.progress_display:
+                                if download_task_id is not None:
+                                    self.progress_display.update_download(
+                                        download_task_id,
+                                        completed=100,
+                                        status="NV-Link利用不可",
+                                    )
+                                self.progress_display.print_info(
+                                    f"{data_spec}: NV-Linkダウンロード不可（別PCのfetch_nar_daily.pyを使用してください）"
+                                )
+                            return
                         break  # Download succeeded
                     except FetcherError as dl_err:
                         # -502/-503: Don't retry with COM reinit — it rarely helps and
@@ -539,6 +557,10 @@ class HistoricalFetcher(BaseFetcher):
             interval: Status check interval in seconds (default: 0.08).
                      kmy-keiba uses 80ms (Task.Delay(80)) for download polling.
 
+        Returns:
+            True if download completed (or cached data available), False if
+            aborted due to persistent errors (e.g. -203) with no usable data.
+
         Raises:
             FetcherError: If download fails or times out
         """
@@ -636,7 +658,7 @@ class HistoricalFetcher(BaseFetcher):
                     logger.info("Waiting for file write completion...", wait_seconds=wait_time)
                     time.sleep(wait_time)
                     logger.info("File write wait completed")
-                    return  # Download complete
+                    return True  # Download complete
 
                 if status < 0:
                     if status in retryable_errors:
@@ -699,3 +721,8 @@ class HistoricalFetcher(BaseFetcher):
                             logger.error("COM reinitialization failed", error=str(reinit_error))
 
                 raise FetcherError(f"Failed to check download status: {e}")
+
+        # break で抜けた場合:
+        # - ストール打ち切り（download_started=True）: キャッシュデータ利用可能
+        # - NVStatus負値で打ち切り（download_started=False）: データなし
+        return download_started

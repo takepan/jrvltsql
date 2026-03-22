@@ -241,6 +241,8 @@ class NVLinkWrapper:
                     "NVOpen: Download pending",
                     data_spec=data_spec,
                     status_code=result,
+                    read_count=read_count,
+                    download_count=download_count,
                 )
                 return result, read_count, download_count, last_file_timestamp
 

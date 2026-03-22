@@ -466,6 +466,8 @@ class NVLinkWrapper:
                     "NVOpen: Download pending",
                     data_spec=data_spec,
                     status_code=result,
+                    read_count=read_count,
+                    download_count=download_count,
                 )
                 return result, read_count, download_count, last_file_timestamp
 
@@ -726,7 +728,11 @@ class NVLinkWrapper:
                 # Recoverable errors - caller should delete file and continue
                 # -3: ダウンロード中（該当ファイルがまだサーバーからDLされていない）
                 # -203, -402, -403, -502, -503: kmy-keiba準拠のリカバリー可能エラー
-                logger.warning("NVRead recoverable error", error_code=result, filename=filename_str)
+                # -3/-203はfetcher側でサイレントスキップするためdebugに抑制
+                if result in (-3, -203):
+                    logger.debug("NVRead recoverable error", error_code=result, filename=filename_str)
+                else:
+                    logger.warning("NVRead recoverable error", error_code=result, filename=filename_str)
                 return result, None, filename_str
 
             else:
