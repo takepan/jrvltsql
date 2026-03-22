@@ -212,6 +212,18 @@ class RealtimeUpdater:
             logger.error(f"Error processing single record: {e}", exc_info=True)
             raise
 
+    @staticmethod
+    def _sanitize_value(val):
+        """Sanitize values for DB insertion (handle masked/invalid JV-Data values)."""
+        if val is None:
+            return None
+        if isinstance(val, str):
+            stripped = val.strip()
+            # "---", "----", "***", "****" etc. → None
+            if not stripped or all(c in '-*' for c in stripped):
+                return None
+        return val
+
     def _handle_new_record(self, table_name: str, data: Dict) -> Dict:
         """Handle new record insertion.
 
@@ -223,11 +235,14 @@ class RealtimeUpdater:
             Result dictionary with operation details
         """
         try:
-            # Remove metadata fields
-            clean_data = {k: v for k, v in data.items() if not k.startswith("_")}
+            # Remove metadata fields and sanitize values
+            clean_data = {
+                k: self._sanitize_value(v)
+                for k, v in data.items()
+                if not k.startswith("_")
+            }
 
             # Insert into database
-            # TODO: Implement UPSERT to handle duplicates
             self.database.insert(table_name, clean_data)
 
             # Note: Per-record debug logging removed to reduce verbosity during real-time processing
