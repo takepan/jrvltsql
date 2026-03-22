@@ -3709,7 +3709,7 @@ class QuickstartRunner:
 
     # === リアルタイムデータ取得（JVRTOpen）===
 
-    # NARでは利用不可のdataspec
+    # NARでは利用不可のdataspec（速報系のみ）
     NAR_UNSUPPORTED_RT_SPECS = {"0B13", "0B17", "0B41", "0B42", "0B51"}
 
     def _run_fetch_realtime_rich(self) -> bool:
@@ -3717,9 +3717,11 @@ class QuickstartRunner:
         data_source_str = self.settings.get('data_source', 'jra')
         if data_source_str == 'nar':
             speed_specs = [(s, d) for s, d in self.SPEED_REPORT_SPECS if s not in self.NAR_UNSUPPORTED_RT_SPECS]
+            # NARでは0B30で全式別オッズが取得可能（0B31-0B36は個別提供なし）
+            time_specs = [("0B30", "全オッズ（単複枠馬連ワイド馬単三連複三連単）")]
         else:
             speed_specs = self.SPEED_REPORT_SPECS
-        time_specs = self.TIME_SERIES_SPECS
+            time_specs = self.TIME_SERIES_SPECS
         total_specs = len(speed_specs) + len(time_specs)
 
         console.print()
