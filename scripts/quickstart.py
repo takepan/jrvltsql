@@ -3245,7 +3245,14 @@ class QuickstartRunner:
             with db:
                 # ~/jra/fetch_ts_odds.py準拠: jv_init 1回、レースごとにjv_rt_open/close
                 from src.parser.factory import ParserFactory
+                from src.importer.importer import DataImporter
                 ts_parser = ParserFactory()
+                importer = DataImporter(
+                    database=db,
+                    batch_size=5000,
+                    data_source=data_source,
+                )
+                # テーブル名解決用
                 updater = RealtimeUpdater(db, data_source=data_source)
 
                 # JV-Link/NV-Link初期化（1回だけ）
@@ -3275,10 +3282,13 @@ class QuickstartRunner:
 
                     start_time = time.time()
 
+                    FLUSH_SIZE = 5000
                     for spec_idx, (spec, desc) in enumerate(timeseries_specs, 1):
                         spec_records = 0
                         status = "success"
                         error_msg = ""
+                        # テーブル別バッチバッファ {table_name: [records]}
+                        batch_buffers = {}
 
                         try:
                             for race_idx, race_info in enumerate(races, 1):
@@ -3296,7 +3306,6 @@ class QuickstartRunner:
                                     full_key = generate_key(
                                         race_date, jyo_code, kaiji, nichiji, race_num
                                     )
-                                    # jv_rt_open → jv_read loop → jv_close（~/jra準拠）
                                     try:
                                         ret, read_count = wrapper.jv_rt_open(spec, full_key)
                                     except Exception:
@@ -3317,10 +3326,29 @@ class QuickstartRunner:
                                             if ret_code < -1:
                                                 continue
                                             if buff:
-                                                updater.process_record(buff, timeseries=True)
-                                                spec_records += 1
-                                                cumulative_records += 1
+                                                # パース→テーブル別バッファに追加
+                                                parsed = ts_parser.parse(buff)
+                                                if parsed:
+                                                    recs = parsed if isinstance(parsed, list) else [parsed]
+                                                    for rec in recs:
+                                                        rec_type = rec.get("RecordSpec", "")
+                                                        tbl = updater.TIMESERIES_RECORD_TYPE_TABLE.get(rec_type)
+                                                        if not tbl:
+                                                            continue
+                                                        if data_source == DataSource.NAR:
+                                                            tbl = f"{tbl}_NAR"
+                                                        # サニタイズ
+                                                        clean = {k: updater._sanitize_value(v) for k, v in rec.items() if not k.startswith("_")}
+                                                        batch_buffers.setdefault(tbl, []).append(clean)
+                                                        spec_records += 1
+                                                        cumulative_records += 1
                                         wrapper.jv_close()
+
+                                    # バッチフラッシュ
+                                    for tbl, recs in batch_buffers.items():
+                                        if len(recs) >= FLUSH_SIZE:
+                                            importer._flush_batch(tbl, recs, auto_commit=True)
+                                            batch_buffers[tbl] = []
 
                                     # 進捗更新（10レースごと）
                                     if race_idx % 10 == 0:
@@ -3343,6 +3371,12 @@ class QuickstartRunner:
                                         status = "failed"
                                         error_msg = error_str[:80]
                                         break
+
+                            # 残りバッチフラッシュ
+                            for tbl, recs in batch_buffers.items():
+                                if recs:
+                                    importer._flush_batch(tbl, recs, auto_commit=True)
+                            batch_buffers.clear()
 
                         except Exception as e:
                             error_str = str(e)
