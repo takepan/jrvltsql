@@ -233,8 +233,9 @@ class HistoricalFetcher(BaseFetcher):
             if self.progress_display:
                 self.progress_display.print_success(
                     f"完了: {data_spec} - "
-                    f"{stats['records_parsed']:,}件取得 "
-                    f"(失敗: {stats['records_failed']}件)"
+                    f"{stats['records_parsed']:,}件取得"
+                    + (f" (スキップ: {stats['records_skipped']}件)" if stats.get('records_skipped', 0) > 0 else "")
+                    + (f" (失敗: {stats['records_failed']}件)" if stats.get('records_failed', 0) > 0 else "")
                 )
 
         except (_WrapperCOMBrokenError, _BridgeCOMBrokenError):

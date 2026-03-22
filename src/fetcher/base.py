@@ -107,6 +107,7 @@ class BaseFetcher(ABC):
         self._records_fetched = 0
         self._records_parsed = 0
         self._records_failed = 0
+        self._records_skipped = 0
         self._download_aborted = False
         self._files_processed = 0
         self._total_files = 0
@@ -220,19 +221,14 @@ class BaseFetcher(ABC):
                             for record_item in records_list:
                                 # Filter by to_date if specified
                                 if to_date and not self._is_within_date_range(record_item, to_date):
-                                    logger.debug(
-                                        "Skipping record outside date range",
-                                        record_num=self._records_fetched,
-                                        to_date=to_date,
-                                    )
                                     continue
 
                                 self._records_parsed += 1
-                                # Include raw buffer for callers that need it (e.g., RealtimeUpdater)
                                 record_item["_raw"] = buff
                                 yield record_item
                         else:
-                            self._records_failed += 1
+                            # パーサー未対応レコード型（NN等）はスキップ扱い
+                            self._records_skipped += 1
 
                     except Exception as e:
                         self._records_failed += 1
@@ -426,6 +422,7 @@ class BaseFetcher(ABC):
             "records_fetched": self._records_fetched,
             "records_parsed": self._records_parsed,
             "records_failed": self._records_failed,
+            "records_skipped": self._records_skipped,
             "download_aborted": self._download_aborted,
         }
 
@@ -434,6 +431,7 @@ class BaseFetcher(ABC):
         self._records_fetched = 0
         self._records_parsed = 0
         self._records_failed = 0
+        self._records_skipped = 0
         self._download_aborted = False
 
     def _is_within_date_range(self, data: dict, to_date: str) -> bool:
