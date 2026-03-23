@@ -2528,7 +2528,7 @@ SCHEMAS = {
     # ========================================
     # 時系列オッズテーブル (TS_O1-O6)
     # オッズの推移を記録するための専用テーブル
-    # HassoTimeをPRIMARY KEYに含めて複数時点のデータを保持
+    # HassoTime + FetchedAt をPKに含めて複数時点のスナップショットを蓄積
     # ========================================
     "TS_O1": """
         CREATE TABLE IF NOT EXISTS TS_O1 (
@@ -2561,7 +2561,8 @@ SCHEMAS = {
             TanVote BIGINT,
             FukuVote BIGINT,
             WakurenVote BIGINT,
-            PRIMARY KEY (Year, MonthDay, JyoCD, Kaiji, Nichiji, RaceNum, Umaban, HassoTime)
+            FetchedAt TEXT,
+            PRIMARY KEY (Year, MonthDay, JyoCD, Kaiji, Nichiji, RaceNum, Umaban, HassoTime, FetchedAt)
         )
     """,
     "TS_O1_WAKU": """
@@ -2581,7 +2582,8 @@ SCHEMAS = {
             WakurenOdds NUMERIC(8,1),
             WakurenNinki INTEGER,
             WakurenVote BIGINT,
-            PRIMARY KEY (Year, MonthDay, JyoCD, Kaiji, Nichiji, RaceNum, Kumi, HassoTime)
+            FetchedAt TEXT,
+            PRIMARY KEY (Year, MonthDay, JyoCD, Kaiji, Nichiji, RaceNum, Kumi, HassoTime, FetchedAt)
         )
     """,
     "TS_O2": """
@@ -2603,7 +2605,8 @@ SCHEMAS = {
             Odds NUMERIC(8,1),
             Ninki INTEGER,
             Vote BIGINT,
-            PRIMARY KEY (Year, MonthDay, JyoCD, Kaiji, Nichiji, RaceNum, Kumi, HassoTime)
+            FetchedAt TEXT,
+            PRIMARY KEY (Year, MonthDay, JyoCD, Kaiji, Nichiji, RaceNum, Kumi, HassoTime, FetchedAt)
         )
     """,
     "TS_O3": """
@@ -2626,7 +2629,8 @@ SCHEMAS = {
             OddsHigh NUMERIC(8,1),
             Ninki INTEGER,
             Vote BIGINT,
-            PRIMARY KEY (Year, MonthDay, JyoCD, Kaiji, Nichiji, RaceNum, Kumi, HassoTime)
+            FetchedAt TEXT,
+            PRIMARY KEY (Year, MonthDay, JyoCD, Kaiji, Nichiji, RaceNum, Kumi, HassoTime, FetchedAt)
         )
     """,
     "TS_O4": """
@@ -2648,7 +2652,8 @@ SCHEMAS = {
             Odds NUMERIC(8,1),
             Ninki INTEGER,
             Vote BIGINT,
-            PRIMARY KEY (Year, MonthDay, JyoCD, Kaiji, Nichiji, RaceNum, Kumi, HassoTime)
+            FetchedAt TEXT,
+            PRIMARY KEY (Year, MonthDay, JyoCD, Kaiji, Nichiji, RaceNum, Kumi, HassoTime, FetchedAt)
         )
     """,
     "TS_O5": """
@@ -2670,7 +2675,8 @@ SCHEMAS = {
             Odds NUMERIC(8,1),
             Ninki INTEGER,
             Vote BIGINT,
-            PRIMARY KEY (Year, MonthDay, JyoCD, Kaiji, Nichiji, RaceNum, Kumi, HassoTime)
+            FetchedAt TEXT,
+            PRIMARY KEY (Year, MonthDay, JyoCD, Kaiji, Nichiji, RaceNum, Kumi, HassoTime, FetchedAt)
         )
     """,
     "TS_O6": """
@@ -2692,7 +2698,8 @@ SCHEMAS = {
             Odds NUMERIC(8,1),
             Ninki INTEGER,
             Vote BIGINT,
-            PRIMARY KEY (Year, MonthDay, JyoCD, Kaiji, Nichiji, RaceNum, Kumi, HassoTime)
+            FetchedAt TEXT,
+            PRIMARY KEY (Year, MonthDay, JyoCD, Kaiji, Nichiji, RaceNum, Kumi, HassoTime, FetchedAt)
         )
     """,
     "NL_NC": """

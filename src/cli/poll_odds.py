@@ -37,15 +37,15 @@ ODDS_TABLE_MAP = {
     'O6': ('nl_o6', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'kumi']),
 }
 
-# 時系列テーブル (HassoTime をPKに含む → 複数時点のデータを保持)
+# 時系列テーブル (HassoTime + FetchedAt をPKに含む → 複数時点のスナップショット蓄積)
 TS_TABLE_MAP = {
-    'O1': ('ts_o1', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'umaban', 'hassotime']),
-    'O1W': ('ts_o1_waku', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'kumi', 'hassotime']),
-    'O2': ('ts_o2', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'kumi', 'hassotime']),
-    'O3': ('ts_o3', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'kumi', 'hassotime']),
-    'O4': ('ts_o4', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'kumi', 'hassotime']),
-    'O5': ('ts_o5', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'kumi', 'hassotime']),
-    'O6': ('ts_o6', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'kumi', 'hassotime']),
+    'O1': ('ts_o1', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'umaban', 'hassotime', 'fetchedat']),
+    'O1W': ('ts_o1_waku', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'kumi', 'hassotime', 'fetchedat']),
+    'O2': ('ts_o2', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'kumi', 'hassotime', 'fetchedat']),
+    'O3': ('ts_o3', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'kumi', 'hassotime', 'fetchedat']),
+    'O4': ('ts_o4', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'kumi', 'hassotime', 'fetchedat']),
+    'O5': ('ts_o5', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'kumi', 'hassotime', 'fetchedat']),
+    'O6': ('ts_o6', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'kumi', 'hassotime', 'fetchedat']),
 }
 
 ODDS_TABLE_MAP_NAR = {
@@ -139,6 +139,7 @@ def trigger_rtd_cache(wrapper, date_str: str, jyocd: str, racenum: int):
 def import_rtd_odds(conn, date_str: str, jyocd: str, racenum: int,
                     ts_table_map: dict, factory):
     """0B30 rtdファイルから全スナップショットのオッズを ts_o* にupsert"""
+    fetched_at = datetime.now().strftime("%Y%m%d%H%M%S")
     paths = find_rtd_files(date_str, "0B30", jyocd, racenum)
     if not paths:
         return 0
@@ -169,7 +170,9 @@ def import_rtd_odds(conn, date_str: str, jyocd: str, racenum: int,
                     ts_mapping = ts_table_map.get(rs)
                     if ts_mapping:
                         ts_tbl, ts_pk = ts_mapping
-                        _generic_upsert(conn, ts_tbl, rec, ts_pk)
+                        ts_rec = dict(rec)
+                        ts_rec["FetchedAt"] = fetched_at
+                        _generic_upsert(conn, ts_tbl, ts_rec, ts_pk)
                         total += 1
             except Exception:
                 pass
@@ -286,6 +289,7 @@ def fetch_race_odds(wrapper, conn, key: str, table_map: dict, factory: ParserFac
                     ts_table_map: Optional[dict] = None):
     """1レース分のオッズを 0B30 で取得して upsert。件数を返す。
     ts_table_map が指定されていれば TS_O* テーブルにも同時書き込み。"""
+    fetched_at = datetime.now().strftime("%Y%m%d%H%M%S")
     try:
         result, _ = wrapper.jv_rt_open("0B30", key=key)
     except Exception:
@@ -330,12 +334,14 @@ def fetch_race_odds(wrapper, conn, key: str, table_map: dict, factory: ParserFac
                     continue
                 tbl, pk = mapping
                 _generic_upsert(conn, tbl, rec, pk)
-                # 時系列テーブルにも書き込み
+                # 時系列テーブルにも書き込み (FetchedAt付与)
                 if ts_table_map:
                     ts_mapping = ts_table_map.get(rs)
                     if ts_mapping:
                         ts_tbl, ts_pk = ts_mapping
-                        _generic_upsert(conn, ts_tbl, rec, ts_pk)
+                        ts_rec = dict(rec)
+                        ts_rec["FetchedAt"] = fetched_at
+                        _generic_upsert(conn, ts_tbl, ts_rec, ts_pk)
                 total += 1
         except Exception:
             pass
@@ -500,7 +506,7 @@ def prefetch_races(wrapper, conn, date_str: str, is_nar: bool):
 
 # ── main loop ──
 
-def run_poll_odds(wrapper, conn, date_str: str, is_nar: bool):
+def run_poll_odds(wrapper, conn, date_str: str, is_nar: bool, pg_config: dict = None):
     """オッズポーリングメインループ"""
     jyo_names = NAR_JYOCD_NAMES if is_nar else JYO_NAMES
     table_map = _get_table_map(is_nar)
@@ -522,82 +528,145 @@ def run_poll_odds(wrapper, conn, date_str: str, is_nar: bool):
     total_odds = 0
     cycle = 0
 
-    while True:
-        cycle += 1
-        cycle_start = datetime.now()
-        now_dt = cycle_start
+    # full用: 別wrapperを作ってバックグラウンドスレッドで回す
+    import threading
+    import pg8000.native
 
-        # 確定状況を更新
-        confirmed = get_confirmed_races(conn, date_str, is_nar)
-        active = [(j, k, n, r, h) for j, k, n, r, h in races if (j, r) not in confirmed]
+    full_stats = {"count": 0, "rtd": 0, "ra": 0, "hr": 0, "running": False, "cycle": 0}
+    full_stop = threading.Event()
 
-        if not active:
-            p(f"全{len(races)}レース確定。終了します。")
-            break
-
-        urgent, pending, next_hasso = categorize_races(races, confirmed, now_dt)
-
-        if urgent:
-            # 発走5分以内: urgentレースのみ取得
-            targets = urgent
-            mode = "urgent"
-        else:
-            # 全未確定レースを取得
-            targets = active
-            mode = "full"
-
-        cycle_total = 0
-        rtd_total = 0
-        rtd_cnt = 0
-        for jyocd, kaiji, nichiji, racenum, hasso_dt in targets:
-            key = f"{date_str}{jyocd}{racenum:02d}"
-            cnt, dk = fetch_race_odds(wrapper, conn, key, table_map, factory, ts_table_map)
-            cycle_total += cnt
-
-            # rtdキャッシュ更新トリガー → 読み取り (NAR)
-            if is_nar:
-                trigger_rtd_cache(wrapper, date_str, jyocd, racenum)
-                rtd_cnt = import_rtd_odds(conn, date_str, jyocd, racenum,
-                                          ts_table_map, factory)
-                rtd_total += rtd_cnt
-
-        total_odds += cycle_total + rtd_total
-
-        # 0B12 rtdから結果も取り込み (NAR)
+    def _full_loop():
+        """バックグラウンド: 5分間隔で全未確定レースのオッズを取得"""
+        # 別wrapper・別DB接続（スレッドごとにCOM/接続が必要）
         if is_nar:
-            rtd_results = import_rtd_results(conn, date_str, factory)
-            rtd_ra = rtd_results.get("RA", 0)
-            rtd_hr = rtd_results.get("HR", 0)
+            from src.nvlink.wrapper_32bit import NVLinkWrapper as _NV
+            init_key_bg = wrapper.initialization_key if hasattr(wrapper, 'initialization_key') else "UNKNOWN"
+            w2 = _NV(sid="UNKNOWN", initialization_key=init_key_bg)
         else:
-            rtd_ra = rtd_hr = 0
+            from src.jvlink.wrapper import JVLinkWrapper as _JV
+            w2 = _JV(sid=wrapper.sid if hasattr(wrapper, 'sid') else "JLTSQL")
+        w2.jv_init()
 
-        # ステータス表示
-        ts = now_dt.strftime("%H:%M:%S")
-        confirmed_count = len(confirmed)
-        remaining = len(races) - confirmed_count
+        # 別DB接続
+        _pgc = pg_config or {}
+        conn2 = pg8000.native.Connection(
+            host=_pgc.get("host", "localhost"),
+            port=_pgc.get("port", 5432),
+            database=_pgc.get("database", "keiba"),
+            user=_pgc.get("user", "jltsql"),
+            password=_pgc.get("password", ""),
+        )
+        conn2.autocommit = True
+        f2 = ParserFactory()
 
-        rtd_str = f" rtd={rtd_total}" if rtd_total > 0 else ""
-        result_str = f" RA+{rtd_ra} HR+{rtd_hr}" if rtd_hr > 0 else ""
+        while not full_stop.is_set():
+            full_stats["running"] = True
+            full_stats["cycle"] += 1
+            conf = get_confirmed_races(conn2, date_str, is_nar)
+            act = [(j, k, n, r, h) for j, k, n, r, h in races if (j, r) not in conf]
 
-        if urgent:
-            urgent_labels = [f"{jyo_names.get(j, j)}R{r}" for j, _, _, r, _ in urgent]
-            p(f"[{ts}] cycle {cycle} ({mode}) +{cycle_total}{rtd_str}{result_str} "
-              f"[{', '.join(urgent_labels)}] "
-              f"確定={confirmed_count}/{len(races)}")
-        else:
-            p(f"[{ts}] cycle {cycle} ({mode}) +{cycle_total}{rtd_str}{result_str} "
-              f"({len(targets)}R) "
-              f"確定={confirmed_count}/{len(races)}")
+            fc = 0
+            rc = 0
+            for jyocd, kaiji, nichiji, racenum, hasso_dt in act:
+                if full_stop.is_set():
+                    break
+                key = f"{date_str}{jyocd}{racenum:02d}"
+                cnt, _ = fetch_race_odds(w2, conn2, key, table_map, f2, ts_table_map)
+                fc += cnt
 
-        if remaining == 0:
-            p(f"全{len(races)}レース確定。終了します。")
-            break
+                if is_nar:
+                    trigger_rtd_cache(w2, date_str, jyocd, racenum)
+                    rtd_cnt = import_rtd_odds(conn2, date_str, jyocd, racenum,
+                                              ts_table_map, f2)
+                    rc += rtd_cnt
 
-        # スリープ
-        sleep_sec = calc_sleep(cycle_start, bool(urgent), next_hasso)
-        next_time = (datetime.now() + timedelta(seconds=sleep_sec)).strftime("%H:%M:%S")
-        p(f"  累計: {total_odds}件, 残り{remaining}R, 次回: {next_time}")
+            # 0B12 rtd
+            if is_nar:
+                rtd_res = import_rtd_results(conn2, date_str, f2)
+                full_stats["ra"] = rtd_res.get("RA", 0)
+                full_stats["hr"] = rtd_res.get("HR", 0)
 
-        # 1秒刻みでsleep（Ctrl+C対応）
-        for _ in range(int(sleep_sec)):
-            time.sleep(1)
+            full_stats["count"] += fc
+            full_stats["rtd"] += rc
+            full_stats["running"] = False
+
+            now_s = datetime.now().strftime("%H:%M:%S")
+            conf_count = len(get_confirmed_races(conn2, date_str, is_nar))
+            p(f"  [{now_s}] full#{full_stats['cycle']} +{fc} rtd+{rc} "
+              f"({len(act)}R) 確定={conf_count}/{len(races)}")
+
+            if conf_count >= len(races):
+                break
+
+            # 5分待ち (1秒刻み)
+            for _ in range(300):
+                if full_stop.is_set():
+                    break
+                time.sleep(1)
+
+        try:
+            conn2.close()
+        except Exception:
+            pass
+
+    # fullスレッド開始
+    full_thread = threading.Thread(target=_full_loop, daemon=True)
+    full_thread.start()
+    p("full取得スレッド開始 (5分間隔)")
+
+    # メインループ: urgent (1分サイクル)
+    try:
+        while True:
+            cycle += 1
+            cycle_start = datetime.now()
+            now_dt = cycle_start
+
+            confirmed = get_confirmed_races(conn, date_str, is_nar)
+            active = [(j, k, n, r, h) for j, k, n, r, h in races if (j, r) not in confirmed]
+
+            if not active:
+                p(f"全{len(races)}レース確定。終了します。")
+                break
+
+            urgent, pending, next_hasso = categorize_races(races, confirmed, now_dt)
+
+            urgent_count = 0
+            if urgent:
+                for jyocd, kaiji, nichiji, racenum, hasso_dt in urgent:
+                    key = f"{date_str}{jyocd}{racenum:02d}"
+                    cnt, dk = fetch_race_odds(wrapper, conn, key, table_map, factory, ts_table_map)
+                    urgent_count += cnt
+
+            total_odds += urgent_count
+
+            # ステータス表示
+            ts = now_dt.strftime("%H:%M:%S")
+            confirmed_count = len(confirmed)
+            remaining = len(races) - confirmed_count
+
+            if urgent:
+                urgent_labels = [f"{jyo_names.get(j, j)}R{r}" for j, _, _, r, _ in urgent]
+                p(f"[{ts}] cycle {cycle} urgent+{urgent_count} "
+                  f"[{', '.join(urgent_labels)}] 確定={confirmed_count}/{len(races)}")
+            else:
+                p(f"[{ts}] cycle {cycle} (waiting) 確定={confirmed_count}/{len(races)}")
+
+            if remaining == 0:
+                p(f"全{len(races)}レース確定。終了します。")
+                break
+
+            # スリープ: urgentがあれば1分、なければ発走5分前まで
+            if urgent:
+                sleep_sec = max((cycle_start + timedelta(seconds=60) - datetime.now()).total_seconds(), 1)
+            else:
+                sleep_sec = calc_sleep(cycle_start, False, next_hasso)
+
+            next_time = (datetime.now() + timedelta(seconds=sleep_sec)).strftime("%H:%M:%S")
+            p(f"  累計: {total_odds + full_stats['count']}件, 残り{remaining}R, 次回: {next_time}")
+
+            for _ in range(int(sleep_sec)):
+                time.sleep(1)
+
+    finally:
+        full_stop.set()
+        full_thread.join(timeout=10)
