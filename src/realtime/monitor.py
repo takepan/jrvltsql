@@ -228,11 +228,11 @@ class RealtimeMonitor:
                     print(f"  [{now}] {status} (total: {total}, polls: {poll_count})",
                           flush=True)
 
-                # Wait for next polling interval
-                if not self._stop_event.wait(timeout=self.polling_interval):
-                    continue
-                else:
-                    break
+                # Wait for next polling interval (short sleeps for Ctrl+C on Windows)
+                for _ in range(self.polling_interval):
+                    if self._stop_event.is_set():
+                        break
+                    time.sleep(1)
 
         except KeyboardInterrupt:
             logger.info("Received KeyboardInterrupt")
