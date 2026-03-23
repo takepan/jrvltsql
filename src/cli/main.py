@@ -1039,6 +1039,11 @@ def monitor(ctx, daemon, data_spec, interval, db, source, nar):
     # Determine database type
     if db:
         db_type = db
+    elif data_source in (DataSource.NAR, DataSource.ALL):
+        # NAR defaults to postgresql
+        db_type = config.get("database.type", "postgresql") if config else "postgresql"
+        if db_type == "sqlite":
+            db_type = "postgresql"
     else:
         db_type = config.get("database.type", "sqlite")
 
