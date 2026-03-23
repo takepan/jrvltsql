@@ -751,6 +751,8 @@ def fetch(ctx, date_from, date_to, data_spec, jv_option, db, batch_size, progres
     # Determine database type
     if db:
         db_type = db
+    elif data_source in (DataSource.NAR, DataSource.ALL):
+        db_type = "postgresql"
     else:
         db_type = config.get("database.type", "sqlite")
 
