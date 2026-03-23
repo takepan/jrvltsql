@@ -7,9 +7,14 @@
   → 直近の発走5分前 or 5分後までスリープ
 
 全レース確定で自動終了。
+NARではrtdキャッシュファイルからも時系列オッズを読み取る。
 """
 
+import glob
+import os
+import struct
 import time
+import zlib
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -50,6 +55,152 @@ ODDS_TABLE_MAP_NAR = {
 TS_TABLE_MAP_NAR = {
     k: (v[0] + '_nar', v[1]) for k, v in TS_TABLE_MAP.items()
 }
+
+# NAR結果テーブル (0B12 rtdから取得)
+NAR_RESULT_TABLE_MAP = {
+    'RA': ('nl_ra_nar', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum']),
+    'SE': ('nl_se_nar', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'umaban']),
+    'HR': ('nl_hr_nar', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum']),
+}
+
+NAR_CACHE_DIR = r"C:\UmaConn\chiho.k-ba\data\cache"
+
+
+# ── rtd file reading ──
+
+def read_zip_entries(data: bytes):
+    """ZIP(rtd)ファイルからエントリを読み取る"""
+    entries = []
+    pos = 0
+    PK_SIG = b'PK\x03\x04'
+    while True:
+        idx = data.find(PK_SIG, pos)
+        if idx == -1:
+            break
+        ver, flags, method, mtime, mdate, crc32_val, comp_size, uncomp_size, name_len, extra_len = \
+            struct.unpack_from('<HHHHHIIIHH', data, idx + 4)
+        name_start = idx + 30
+        name = data[name_start:name_start + name_len].decode('cp932', errors='replace')
+        data_start = name_start + name_len + extra_len
+        if method == 8:
+            content = zlib.decompress(data[data_start:data_start + comp_size], -15)
+        elif method == 0:
+            content = data[data_start:data_start + uncomp_size]
+        else:
+            content = b''
+        entries.append((name, content))
+        pos = data_start + comp_size
+    return entries
+
+
+def find_rtd_files(date_str: str, dataspec: str, jyocd: str = None, racenum: int = None):
+    """rtdファイルのパスを検索。
+
+    速報系(0B1x): {dataspec}{date}.rtd (日付単位)
+    時系列(0B3x): {dataspec}{date}{jyocd}{rr}.rtd (レース単位)
+    """
+    year = date_str[:4]
+    cache_dir = os.path.join(NAR_CACHE_DIR, year)
+    if not os.path.isdir(cache_dir):
+        return []
+
+    if jyocd and racenum is not None:
+        rr = f"{racenum:02d}"
+        pattern = os.path.join(cache_dir, f"{dataspec}{date_str}{jyocd}*{rr}.rtd")
+    else:
+        pattern = os.path.join(cache_dir, f"{dataspec}{date_str}*.rtd")
+
+    return sorted(glob.glob(pattern))
+
+
+def import_rtd_odds(conn, date_str: str, jyocd: str, racenum: int,
+                    table_map: dict, ts_table_map: dict, factory):
+    """0B30 rtdファイルから全スナップショットのオッズを読み取ってupsert"""
+    paths = find_rtd_files(date_str, "0B30", jyocd, racenum)
+    if not paths:
+        return 0
+
+    total = 0
+    for rtd_path in paths:
+        try:
+            with open(rtd_path, 'rb') as f:
+                data = f.read()
+            entries = read_zip_entries(data)
+        except Exception:
+            continue
+
+        for _, content in entries:
+            if len(content) < 2:
+                continue
+            rt = content[:2].decode('cp932', errors='replace')
+            try:
+                parser = factory.get_parser(rt)
+                if parser is None:
+                    continue
+                parsed = parser.parse(content)
+                if parsed is None:
+                    continue
+                records = parsed if isinstance(parsed, list) else [parsed]
+                for rec in records:
+                    rs = rec.get("RecordSpec", rt)
+                    # nl_o* (最新)
+                    mapping = table_map.get(rs)
+                    if mapping:
+                        tbl, pk = mapping
+                        _generic_upsert(conn, tbl, rec, pk)
+                    # ts_o* (時系列)
+                    ts_mapping = ts_table_map.get(rs)
+                    if ts_mapping:
+                        ts_tbl, ts_pk = ts_mapping
+                        _generic_upsert(conn, ts_tbl, rec, ts_pk)
+                        total += 1
+            except Exception:
+                pass
+
+    return total
+
+
+def import_rtd_results(conn, date_str: str, factory):
+    """0B12 rtdファイルからRA/SE/HRを読み取ってupsert (ネストzip)"""
+    paths = find_rtd_files(date_str, "0B12")
+    if not paths:
+        return {}
+
+    counts = {"RA": 0, "SE": 0, "HR": 0}
+    for rtd_path in paths:
+        try:
+            with open(rtd_path, 'rb') as f:
+                data = f.read()
+            outer_entries = read_zip_entries(data)
+        except Exception:
+            continue
+
+        for _, outer_content in outer_entries:
+            # 内側のzipを展開
+            inner_entries = read_zip_entries(outer_content)
+            for _, content in inner_entries:
+                if len(content) < 2:
+                    continue
+                rt = content[:2].decode('cp932', errors='replace')
+                mapping = NAR_RESULT_TABLE_MAP.get(rt)
+                if not mapping:
+                    continue
+                try:
+                    parser = factory.get_parser(rt)
+                    if parser is None:
+                        continue
+                    parsed = parser.parse(content)
+                    if parsed is None:
+                        continue
+                    records = parsed if isinstance(parsed, list) else [parsed]
+                    for rec in records:
+                        tbl, pk = mapping
+                        _generic_upsert(conn, tbl, rec, pk)
+                        counts[rt] = counts.get(rt, 0) + 1
+                except Exception:
+                    pass
+
+    return counts
 
 
 def _get_table_map(is_nar: bool) -> dict:
@@ -379,28 +530,46 @@ def run_poll_odds(wrapper, conn, date_str: str, is_nar: bool):
             mode = "full"
 
         cycle_total = 0
+        rtd_total = 0
         for jyocd, kaiji, nichiji, racenum, hasso_dt in targets:
             key = f"{date_str}{jyocd}{racenum:02d}"
             cnt, dk = fetch_race_odds(wrapper, conn, key, table_map, factory, ts_table_map)
             cycle_total += cnt
 
+            # rtdキャッシュからも時系列オッズを取り込み (NAR)
+            if is_nar:
+                rtd_cnt = import_rtd_odds(conn, date_str, jyocd, racenum,
+                                          table_map, ts_table_map, factory)
+                rtd_total += rtd_cnt
+
             if dk in ("4", "5"):
                 confirmed.add((jyocd, racenum))
 
-        total_odds += cycle_total
+        total_odds += cycle_total + rtd_total
+
+        # 0B12 rtdから結果も取り込み (NAR)
+        if is_nar:
+            rtd_results = import_rtd_results(conn, date_str, factory)
+            rtd_ra = rtd_results.get("RA", 0)
+            rtd_hr = rtd_results.get("HR", 0)
+        else:
+            rtd_ra = rtd_hr = 0
 
         # ステータス表示
         ts = now_dt.strftime("%H:%M:%S")
         confirmed_count = len(confirmed)
         remaining = len(races) - confirmed_count
 
+        rtd_str = f" rtd={rtd_total}" if rtd_total > 0 else ""
+        result_str = f" RA+{rtd_ra} HR+{rtd_hr}" if rtd_hr > 0 else ""
+
         if urgent:
             urgent_labels = [f"{jyo_names.get(j, j)}R{r}" for j, _, _, r, _ in urgent]
-            p(f"[{ts}] cycle {cycle} ({mode}) +{cycle_total} "
+            p(f"[{ts}] cycle {cycle} ({mode}) +{cycle_total}{rtd_str}{result_str} "
               f"[{', '.join(urgent_labels)}] "
               f"確定={confirmed_count}/{len(races)}")
         else:
-            p(f"[{ts}] cycle {cycle} ({mode}) +{cycle_total} "
+            p(f"[{ts}] cycle {cycle} ({mode}) +{cycle_total}{rtd_str}{result_str} "
               f"({len(targets)}R) "
               f"確定={confirmed_count}/{len(races)}")
 
