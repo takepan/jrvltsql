@@ -65,6 +65,10 @@ NAR_RESULT_TABLE_MAP = {
 
 NAR_CACHE_DIR = r"C:\UmaConn\chiho.k-ba\data\cache"
 
+# NARのrtdキャッシュ更新に使うspec一覧
+# NVRTOpen→NVCloseすることで.rtdファイルが更新される
+NAR_RTD_TRIGGER_SPECS = ["0B41", "0B42", "0B33", "0B34", "0B35", "0B36"]
+
 
 # ── rtd file reading ──
 
@@ -111,6 +115,21 @@ def find_rtd_files(date_str: str, dataspec: str, jyocd: str = None, racenum: int
         pattern = os.path.join(cache_dir, f"{dataspec}{date_str}*.rtd")
 
     return sorted(glob.glob(pattern))
+
+
+def trigger_rtd_cache(wrapper, date_str: str, jyocd: str, racenum: int):
+    """各式別specでNVRTOpen→NVCloseしてrtdキャッシュを更新させる"""
+    rr = f"{racenum:02d}"
+    key = f"{date_str}{jyocd}{rr}"
+    for spec in NAR_RTD_TRIGGER_SPECS:
+        try:
+            wrapper.jv_rt_open(spec, key=key)
+            wrapper.jv_close()
+        except Exception:
+            try:
+                wrapper.jv_close()
+            except Exception:
+                pass
 
 
 def import_rtd_odds(conn, date_str: str, jyocd: str, racenum: int,
@@ -536,8 +555,9 @@ def run_poll_odds(wrapper, conn, date_str: str, is_nar: bool):
             cnt, dk = fetch_race_odds(wrapper, conn, key, table_map, factory, ts_table_map)
             cycle_total += cnt
 
-            # rtdキャッシュからも時系列オッズを取り込み (NAR)
+            # rtdキャッシュ更新トリガー → 読み取り (NAR)
             if is_nar:
+                trigger_rtd_cache(wrapper, date_str, jyocd, racenum)
                 rtd_cnt = import_rtd_odds(conn, date_str, jyocd, racenum,
                                           table_map, ts_table_map, factory)
                 rtd_total += rtd_cnt
