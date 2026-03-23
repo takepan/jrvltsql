@@ -137,8 +137,8 @@ def trigger_rtd_cache(wrapper, date_str: str, jyocd: str, racenum: int):
 
 
 def import_rtd_odds(conn, date_str: str, jyocd: str, racenum: int,
-                    table_map: dict, ts_table_map: dict, factory):
-    """0B30 rtdファイルから全スナップショットのオッズを読み取ってupsert"""
+                    ts_table_map: dict, factory):
+    """0B30 rtdファイルから全スナップショットのオッズを ts_o* にupsert"""
     paths = find_rtd_files(date_str, "0B30", jyocd, racenum)
     if not paths:
         return 0
@@ -166,12 +166,6 @@ def import_rtd_odds(conn, date_str: str, jyocd: str, racenum: int,
                 records = parsed if isinstance(parsed, list) else [parsed]
                 for rec in records:
                     rs = rec.get("RecordSpec", rt)
-                    # nl_o* (最新)
-                    mapping = table_map.get(rs)
-                    if mapping:
-                        tbl, pk = mapping
-                        _generic_upsert(conn, tbl, rec, pk)
-                    # ts_o* (時系列)
                     ts_mapping = ts_table_map.get(rs)
                     if ts_mapping:
                         ts_tbl, ts_pk = ts_mapping
@@ -564,7 +558,7 @@ def run_poll_odds(wrapper, conn, date_str: str, is_nar: bool):
             if is_nar:
                 trigger_rtd_cache(wrapper, date_str, jyocd, racenum)
                 rtd_cnt = import_rtd_odds(conn, date_str, jyocd, racenum,
-                                          table_map, ts_table_map, factory)
+                                          ts_table_map, factory)
                 rtd_total += rtd_cnt
 
         total_odds += cycle_total + rtd_total
