@@ -504,10 +504,110 @@ def prefetch_races(wrapper, conn, date_str: str, is_nar: bool):
     return ra_count
 
 
+# ── full subprocess ──
+
+def _run_full_cycle(date_str: str, is_nar: bool, pg_config: dict):
+    """子プロセスとして実行: 全未確定レースのオッズ取得 (1回)
+
+    独立プロセスなのでCOM干渉なし。stdoutに結果をprint。
+    """
+    import json
+
+    # COM初期化 + wrapper
+    if is_nar:
+        from src.nvlink.wrapper_32bit import NVLinkWrapper
+        w = NVLinkWrapper(sid="UNKNOWN", initialization_key="UNKNOWN")
+    else:
+        from src.jvlink.wrapper import JVLinkWrapper
+        w = JVLinkWrapper(sid="JLTSQL")
+    w.jv_init()
+
+    # DB接続
+    import pg8000.native
+    _pgc = pg_config or {}
+    conn = pg8000.native.Connection(
+        host=_pgc.get("host", "localhost"),
+        port=_pgc.get("port", 5432),
+        database=_pgc.get("database", "keiba"),
+        user=_pgc.get("user", "jltsql"),
+        password=_pgc.get("password", ""),
+    )
+    conn.autocommit = True
+
+    table_map = _get_table_map(is_nar)
+    ts_table_map = _get_ts_table_map(is_nar)
+    factory = ParserFactory()
+
+    confirmed = get_confirmed_races(conn, date_str, is_nar)
+    table = "nl_ra_nar" if is_nar else "nl_ra"
+    year = int(date_str[:4])
+    monthday = int(date_str[4:])
+    rows = conn.run(f"""
+        SELECT DISTINCT jyocd, racenum FROM {table}
+        WHERE year = :y AND monthday = :md ORDER BY jyocd, racenum
+    """, y=year, md=monthday)
+
+    active = [(str(j).zfill(2) if isinstance(j, int) else j, int(r))
+              for j, r in rows if (str(j).zfill(2) if isinstance(j, int) else j, int(r)) not in confirmed]
+
+    odds_count = 0
+    rtd_count = 0
+    for jyocd, racenum in active:
+        key = f"{date_str}{jyocd}{racenum:02d}"
+        cnt, _ = fetch_race_odds(w, conn, key, table_map, factory, ts_table_map)
+        odds_count += cnt
+
+        if is_nar:
+            trigger_rtd_cache(w, date_str, jyocd, racenum)
+            rtd_cnt = import_rtd_odds(conn, date_str, jyocd, racenum, ts_table_map, factory)
+            rtd_count += rtd_cnt
+
+    if is_nar:
+        import_rtd_results(conn, date_str, factory)
+
+    new_confirmed = len(get_confirmed_races(conn, date_str, is_nar))
+    conn.close()
+
+    # 結果をJSONで出力（親プロセスが読む）
+    print(json.dumps({
+        "odds": odds_count, "rtd": rtd_count,
+        "active": len(active), "confirmed": new_confirmed,
+    }), flush=True)
+
+
+def _start_full_subprocess(date_str: str, is_nar: bool, pg_config: dict):
+    """fullを子プロセスで起動。Popenオブジェクトを返す。"""
+    import subprocess
+    import sys
+
+    # 自身のpythonで _run_full_cycle を呼ぶスクリプトを生成
+    script = f"""
+import sys, json
+sys.path.insert(0, {repr(str(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))})
+from src.cli.poll_odds import _run_full_cycle
+_run_full_cycle({repr(date_str)}, {repr(is_nar)}, {repr(pg_config)})
+"""
+    proc = subprocess.Popen(
+        [sys.executable, "-c", script],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    )
+    return proc
+
+
 # ── main loop ──
 
 def run_poll_odds(wrapper, conn, date_str: str, is_nar: bool, pg_config: dict = None):
-    """オッズポーリングメインループ"""
+    """オッズポーリングメインループ
+
+    メインプロセス: urgent (1分サイクル)
+    子プロセス:     full   (5分サイクル) — COMが独立なので干渉なし
+    共有:           PostgreSQL
+    """
+    import json
+    import subprocess
+
     jyo_names = NAR_JYOCD_NAMES if is_nar else JYO_NAMES
     table_map = _get_table_map(is_nar)
     ts_table_map = _get_ts_table_map(is_nar)
@@ -524,10 +624,10 @@ def run_poll_odds(wrapper, conn, date_str: str, is_nar: bool, pg_config: dict = 
     jyo_set = sorted(set(r[0] for r in races))
     p(f"対象: {len(races)}R [{', '.join(jyo_names.get(j, j) for j in jyo_set)}]")
 
-    confirmed = get_confirmed_races(conn, date_str, is_nar)
     total_odds = 0
     cycle = 0
-    last_full = datetime.min
+    full_proc = None       # 子プロセス
+    last_full_start = datetime.min
 
     while True:
         cycle += 1
@@ -542,9 +642,27 @@ def run_poll_odds(wrapper, conn, date_str: str, is_nar: bool, pg_config: dict = 
             break
 
         urgent, pending, next_hasso = categorize_races(races, confirmed, now_dt)
-        need_full = (now_dt - last_full).total_seconds() >= 300
 
-        # 1) urgent: 発走5分以内のレース (毎サイクル)
+        # full子プロセスの結果を回収
+        full_result = None
+        if full_proc and full_proc.poll() is not None:
+            try:
+                stdout = full_proc.stdout.read().decode("utf-8", errors="replace").strip()
+                # 最後の行がJSON
+                for line in stdout.split("\n"):
+                    line = line.strip()
+                    if line.startswith("{"):
+                        full_result = json.loads(line)
+            except Exception:
+                pass
+            full_proc = None
+
+        # full子プロセス起動 (5分間隔、前回が終了していたら)
+        if full_proc is None and (now_dt - last_full_start).total_seconds() >= 300:
+            full_proc = _start_full_subprocess(date_str, is_nar, pg_config)
+            last_full_start = now_dt
+
+        # urgent: 発走5分以内のレース
         urgent_count = 0
         if urgent:
             for jyocd, kaiji, nichiji, racenum, hasso_dt in urgent:
@@ -552,32 +670,7 @@ def run_poll_odds(wrapper, conn, date_str: str, is_nar: bool, pg_config: dict = 
                 cnt, dk = fetch_race_odds(wrapper, conn, key, table_map, factory, ts_table_map)
                 urgent_count += cnt
 
-        # 2) full: 全未確定レース (5分間隔)
-        full_count = 0
-        rtd_total = 0
-        if need_full:
-            urgent_set = set((j, r) for j, _, _, r, _ in urgent) if urgent else set()
-            for jyocd, kaiji, nichiji, racenum, hasso_dt in active:
-                if (jyocd, racenum) in urgent_set:
-                    continue  # urgentで取得済み
-                key = f"{date_str}{jyocd}{racenum:02d}"
-                cnt, dk = fetch_race_odds(wrapper, conn, key, table_map, factory, ts_table_map)
-                full_count += cnt
-
-                if is_nar:
-                    trigger_rtd_cache(wrapper, date_str, jyocd, racenum)
-                    rtd_cnt = import_rtd_odds(conn, date_str, jyocd, racenum,
-                                              ts_table_map, factory)
-                    rtd_total += rtd_cnt
-
-            # 0B12 rtd
-            if is_nar:
-                import_rtd_results(conn, date_str, factory)
-
-            last_full = datetime.now()
-
-        cycle_total = urgent_count + full_count
-        total_odds += cycle_total + rtd_total
+        total_odds += urgent_count
 
         # ステータス表示
         ts = now_dt.strftime("%H:%M:%S")
@@ -588,10 +681,11 @@ def run_poll_odds(wrapper, conn, date_str: str, is_nar: bool, pg_config: dict = 
         if urgent_count > 0:
             urgent_labels = [f"{jyo_names.get(j, j)}R{r}" for j, _, _, r, _ in urgent]
             parts.append(f"urgent+{urgent_count} [{', '.join(urgent_labels)}]")
-        if full_count > 0:
-            parts.append(f"full+{full_count} ({len(active) - len(urgent_set if need_full else set())}R)")
-        if rtd_total > 0:
-            parts.append(f"rtd+{rtd_total}")
+        if full_result:
+            parts.append(f"full+{full_result['odds']} rtd+{full_result['rtd']} ({full_result['active']}R)")
+            total_odds += full_result['odds'] + full_result['rtd']
+        if full_proc and full_proc.poll() is None:
+            parts.append("[full running]")
         if not parts:
             parts.append("waiting")
 
@@ -601,14 +695,10 @@ def run_poll_odds(wrapper, conn, date_str: str, is_nar: bool, pg_config: dict = 
             p(f"全{len(races)}レース確定。終了します。")
             break
 
-        # スリープ: urgentがあれば1分、なければ min(次のfull, 発走5分前)
+        # スリープ: urgentがあれば1分、なければ発走5分前まで
         if urgent:
             sleep_sec = max((cycle_start + timedelta(seconds=60) - datetime.now()).total_seconds(), 1)
-        elif need_full:
-            # fullを実行した直後 → 次のfullまで5分、ただし発走5分前には起きる
-            sleep_sec = calc_sleep(datetime.now(), False, next_hasso)
         else:
-            # fullまだ → 次のurgentか発走5分前
             sleep_sec = calc_sleep(cycle_start, False, next_hasso)
 
         next_time = (datetime.now() + timedelta(seconds=sleep_sec)).strftime("%H:%M:%S")
@@ -616,3 +706,8 @@ def run_poll_odds(wrapper, conn, date_str: str, is_nar: bool, pg_config: dict = 
 
         for _ in range(int(sleep_sec)):
             time.sleep(1)
+
+    # 子プロセス待ち
+    if full_proc and full_proc.poll() is None:
+        full_proc.terminate()
+        full_proc.wait(timeout=10)
