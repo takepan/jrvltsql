@@ -527,150 +527,92 @@ def run_poll_odds(wrapper, conn, date_str: str, is_nar: bool, pg_config: dict = 
     confirmed = get_confirmed_races(conn, date_str, is_nar)
     total_odds = 0
     cycle = 0
+    last_full = datetime.min
 
-    # full用: 別wrapperを作ってバックグラウンドスレッドで回す
-    import threading
-    import pg8000.native
+    while True:
+        cycle += 1
+        cycle_start = datetime.now()
+        now_dt = cycle_start
 
-    full_stats = {"count": 0, "rtd": 0, "ra": 0, "hr": 0, "running": False, "cycle": 0}
-    full_stop = threading.Event()
+        confirmed = get_confirmed_races(conn, date_str, is_nar)
+        active = [(j, k, n, r, h) for j, k, n, r, h in races if (j, r) not in confirmed]
 
-    def _full_loop():
-        """バックグラウンド: 5分間隔で全未確定レースのオッズを取得"""
-        # 別スレッドではCOM初期化が必要
-        import pythoncom
-        pythoncom.CoInitialize()
+        if not active:
+            p(f"全{len(races)}レース確定。終了します。")
+            break
 
-        # 別wrapper・別DB接続（スレッドごとにCOM/接続が必要）
-        if is_nar:
-            from src.nvlink.wrapper_32bit import NVLinkWrapper as _NV
-            init_key_bg = wrapper.initialization_key if hasattr(wrapper, 'initialization_key') else "UNKNOWN"
-            w2 = _NV(sid="UNKNOWN", initialization_key=init_key_bg)
-        else:
-            from src.jvlink.wrapper import JVLinkWrapper as _JV
-            w2 = _JV(sid=wrapper.sid if hasattr(wrapper, 'sid') else "JLTSQL")
-        w2.jv_init()
+        urgent, pending, next_hasso = categorize_races(races, confirmed, now_dt)
+        need_full = (now_dt - last_full).total_seconds() >= 300
 
-        # 別DB接続
-        _pgc = pg_config or {}
-        conn2 = pg8000.native.Connection(
-            host=_pgc.get("host", "localhost"),
-            port=_pgc.get("port", 5432),
-            database=_pgc.get("database", "keiba"),
-            user=_pgc.get("user", "jltsql"),
-            password=_pgc.get("password", ""),
-        )
-        conn2.autocommit = True
-        f2 = ParserFactory()
-
-        while not full_stop.is_set():
-            full_stats["running"] = True
-            full_stats["cycle"] += 1
-            conf = get_confirmed_races(conn2, date_str, is_nar)
-            act = [(j, k, n, r, h) for j, k, n, r, h in races if (j, r) not in conf]
-
-            fc = 0
-            rc = 0
-            for jyocd, kaiji, nichiji, racenum, hasso_dt in act:
-                if full_stop.is_set():
-                    break
+        # 1) urgent: 発走5分以内のレース (毎サイクル)
+        urgent_count = 0
+        if urgent:
+            for jyocd, kaiji, nichiji, racenum, hasso_dt in urgent:
                 key = f"{date_str}{jyocd}{racenum:02d}"
-                cnt, _ = fetch_race_odds(w2, conn2, key, table_map, f2, ts_table_map)
-                fc += cnt
+                cnt, dk = fetch_race_odds(wrapper, conn, key, table_map, factory, ts_table_map)
+                urgent_count += cnt
+
+        # 2) full: 全未確定レース (5分間隔)
+        full_count = 0
+        rtd_total = 0
+        if need_full:
+            urgent_set = set((j, r) for j, _, _, r, _ in urgent) if urgent else set()
+            for jyocd, kaiji, nichiji, racenum, hasso_dt in active:
+                if (jyocd, racenum) in urgent_set:
+                    continue  # urgentで取得済み
+                key = f"{date_str}{jyocd}{racenum:02d}"
+                cnt, dk = fetch_race_odds(wrapper, conn, key, table_map, factory, ts_table_map)
+                full_count += cnt
 
                 if is_nar:
-                    trigger_rtd_cache(w2, date_str, jyocd, racenum)
-                    rtd_cnt = import_rtd_odds(conn2, date_str, jyocd, racenum,
-                                              ts_table_map, f2)
-                    rc += rtd_cnt
+                    trigger_rtd_cache(wrapper, date_str, jyocd, racenum)
+                    rtd_cnt = import_rtd_odds(conn, date_str, jyocd, racenum,
+                                              ts_table_map, factory)
+                    rtd_total += rtd_cnt
 
             # 0B12 rtd
             if is_nar:
-                rtd_res = import_rtd_results(conn2, date_str, f2)
-                full_stats["ra"] = rtd_res.get("RA", 0)
-                full_stats["hr"] = rtd_res.get("HR", 0)
+                import_rtd_results(conn, date_str, factory)
 
-            full_stats["count"] += fc
-            full_stats["rtd"] += rc
-            full_stats["running"] = False
+            last_full = datetime.now()
 
-            now_s = datetime.now().strftime("%H:%M:%S")
-            conf_count = len(get_confirmed_races(conn2, date_str, is_nar))
-            p(f"  [{now_s}] full#{full_stats['cycle']} +{fc} rtd+{rc} "
-              f"({len(act)}R) 確定={conf_count}/{len(races)}")
+        cycle_total = urgent_count + full_count
+        total_odds += cycle_total + rtd_total
 
-            if conf_count >= len(races):
-                break
+        # ステータス表示
+        ts = now_dt.strftime("%H:%M:%S")
+        confirmed_count = len(get_confirmed_races(conn, date_str, is_nar))
+        remaining = len(races) - confirmed_count
 
-            # 5分待ち (1秒刻み)
-            for _ in range(300):
-                if full_stop.is_set():
-                    break
-                time.sleep(1)
+        parts = []
+        if urgent_count > 0:
+            urgent_labels = [f"{jyo_names.get(j, j)}R{r}" for j, _, _, r, _ in urgent]
+            parts.append(f"urgent+{urgent_count} [{', '.join(urgent_labels)}]")
+        if full_count > 0:
+            parts.append(f"full+{full_count} ({len(active) - len(urgent_set if need_full else set())}R)")
+        if rtd_total > 0:
+            parts.append(f"rtd+{rtd_total}")
+        if not parts:
+            parts.append("waiting")
 
-        try:
-            conn2.close()
-        except Exception:
-            pass
+        p(f"[{ts}] cycle {cycle} {' '.join(parts)} 確定={confirmed_count}/{len(races)}")
 
-    # fullスレッド開始
-    full_thread = threading.Thread(target=_full_loop, daemon=True)
-    full_thread.start()
-    p("full取得スレッド開始 (5分間隔)")
+        if remaining == 0:
+            p(f"全{len(races)}レース確定。終了します。")
+            break
 
-    # メインループ: urgent (1分サイクル)
-    try:
-        while True:
-            cycle += 1
-            cycle_start = datetime.now()
-            now_dt = cycle_start
+        # スリープ: urgentがあれば1分、なければ min(次のfull, 発走5分前)
+        if urgent:
+            sleep_sec = max((cycle_start + timedelta(seconds=60) - datetime.now()).total_seconds(), 1)
+        elif need_full:
+            # fullを実行した直後 → 次のfullまで5分、ただし発走5分前には起きる
+            sleep_sec = calc_sleep(datetime.now(), False, next_hasso)
+        else:
+            # fullまだ → 次のurgentか発走5分前
+            sleep_sec = calc_sleep(cycle_start, False, next_hasso)
 
-            confirmed = get_confirmed_races(conn, date_str, is_nar)
-            active = [(j, k, n, r, h) for j, k, n, r, h in races if (j, r) not in confirmed]
+        next_time = (datetime.now() + timedelta(seconds=sleep_sec)).strftime("%H:%M:%S")
+        p(f"  累計: {total_odds}件, 残り{remaining}R, 次回: {next_time}")
 
-            if not active:
-                p(f"全{len(races)}レース確定。終了します。")
-                break
-
-            urgent, pending, next_hasso = categorize_races(races, confirmed, now_dt)
-
-            urgent_count = 0
-            if urgent:
-                for jyocd, kaiji, nichiji, racenum, hasso_dt in urgent:
-                    key = f"{date_str}{jyocd}{racenum:02d}"
-                    cnt, dk = fetch_race_odds(wrapper, conn, key, table_map, factory, ts_table_map)
-                    urgent_count += cnt
-
-            total_odds += urgent_count
-
-            # ステータス表示
-            ts = now_dt.strftime("%H:%M:%S")
-            confirmed_count = len(confirmed)
-            remaining = len(races) - confirmed_count
-
-            if urgent:
-                urgent_labels = [f"{jyo_names.get(j, j)}R{r}" for j, _, _, r, _ in urgent]
-                p(f"[{ts}] cycle {cycle} urgent+{urgent_count} "
-                  f"[{', '.join(urgent_labels)}] 確定={confirmed_count}/{len(races)}")
-            else:
-                p(f"[{ts}] cycle {cycle} (waiting) 確定={confirmed_count}/{len(races)}")
-
-            if remaining == 0:
-                p(f"全{len(races)}レース確定。終了します。")
-                break
-
-            # スリープ: urgentがあれば1分、なければ発走5分前まで
-            if urgent:
-                sleep_sec = max((cycle_start + timedelta(seconds=60) - datetime.now()).total_seconds(), 1)
-            else:
-                sleep_sec = calc_sleep(cycle_start, False, next_hasso)
-
-            next_time = (datetime.now() + timedelta(seconds=sleep_sec)).strftime("%H:%M:%S")
-            p(f"  累計: {total_odds + full_stats['count']}件, 残り{remaining}R, 次回: {next_time}")
-
-            for _ in range(int(sleep_sec)):
-                time.sleep(1)
-
-    finally:
-        full_stop.set()
-        full_thread.join(timeout=10)
+        for _ in range(int(sleep_sec)):
+            time.sleep(1)
