@@ -13,6 +13,7 @@ from src.jvlink.constants import JV_RT_SUCCESS, JV_READ_SUCCESS
 from src.realtime.updater import RealtimeUpdater
 from src.utils.data_source import DataSource
 from src.utils.logger import get_logger
+from datetime import date as date_type
 
 logger = get_logger(__name__)
 
@@ -97,6 +98,22 @@ class RealtimeMonitor:
             data_source=data_source.value,
         )
 
+    def _rt_open(self) -> int:
+        """Open real-time stream and return result code.
+
+        Returns:
+            Result code: 0=success, -1=no data, negative=error
+        """
+        try:
+            rt_result = self.jvlink.jv_rt_open(self.data_spec, key=self._rt_key)
+        except Exception as e:
+            logger.warning(f"JVRTOpen failed: {e}")
+            return getattr(e, 'error_code', -999)
+
+        if isinstance(rt_result, tuple):
+            return int(rt_result[0])
+        return int(rt_result)
+
     def start(self, daemon: bool = False) -> None:
         """Start real-time monitoring.
 
@@ -114,21 +131,18 @@ class RealtimeMonitor:
         # Initialize JV-Link
         self.jvlink.jv_init()
 
-        # Open real-time stream
-        rt_result = self.jvlink.jv_rt_open(self.data_spec)
-        # NVLink returns tuple (result_code, read_count), JVLink returns int
-        if isinstance(rt_result, tuple):
-            ret_code = int(rt_result[0])
-        else:
-            ret_code = int(rt_result)
+        # Build key for JVRTOpen
+        # 速報系 (0B1x): YYYYMMDD, 時系列 (0B2x-0B3x): requires race-level key
+        self._rt_key = date_type.today().strftime("%Y%m%d")
 
+        # Open real-time stream
+        ret_code = self._rt_open()
         if ret_code == -1:
-            # No data available (non-race day or no updates yet)
-            # Start polling loop anyway — data will appear when races begin
-            logger.info("JVRTOpen: no data yet (non-race day?), will keep polling")
+            logger.info("JVRTOpen: no data yet (non-race day?), will keep polling",
+                        key=self._rt_key)
         elif ret_code != JV_RT_SUCCESS:
-            logger.error(f"Failed to open real-time stream: {ret_code}")
-            raise RuntimeError(f"JVRTOpen failed with code {ret_code}")
+            raise RuntimeError(
+                f"JVRTOpen failed with code {ret_code} (key={self._rt_key})")
 
         self._running = True
         self._stats["started_at"] = datetime.now()
@@ -215,19 +229,25 @@ class RealtimeMonitor:
         """Poll JV-Link once for new data."""
         logger.debug("Polling JV-Link for updates")
 
+        # Update key if date changed (midnight rollover)
+        today_key = date_type.today().strftime("%Y%m%d")
+        if today_key != self._rt_key:
+            logger.info(f"Date changed: {self._rt_key} -> {today_key}")
+            self._rt_key = today_key
+            # Force re-open with new date key
+            try:
+                self.jvlink.jv_close()
+            except Exception:
+                pass
+
         # Re-open stream if not open (e.g., after -1 on non-race day)
         if not self.jvlink._is_open:
-            try:
-                rt_result = self.jvlink.jv_rt_open(self.data_spec)
-                ret_code = int(rt_result[0]) if isinstance(rt_result, tuple) else int(rt_result)
-                if ret_code == -1:
-                    logger.debug("Still no data available, will retry next poll")
-                    return
-                elif ret_code != JV_RT_SUCCESS:
-                    logger.warning(f"JVRTOpen returned {ret_code}, will retry next poll")
-                    return
-            except Exception as e:
-                logger.warning(f"Failed to re-open stream: {e}, will retry next poll")
+            ret_code = self._rt_open()
+            if ret_code == -1:
+                logger.debug("Still no data available, will retry next poll")
+                return
+            elif ret_code != JV_RT_SUCCESS:
+                logger.debug(f"JVRTOpen returned {ret_code}, will retry next poll")
                 return
 
         records_in_poll = 0

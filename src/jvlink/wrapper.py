@@ -324,7 +324,9 @@ class JVLinkWrapper:
 
         Args:
             data_spec: Real-time data specification (e.g., "0B12", "0B15")
-            key: Key parameter (usually empty string)
+            key: Key parameter - format depends on data_spec:
+                 速報系 (0B1x): YYYYMMDD (8 digits, date)
+                 時系列 (0B2x-0B3x): YYYYMMDDJJKKNNRR (16 digits, race-level)
 
         Returns:
             Tuple of (result_code, read_count)
