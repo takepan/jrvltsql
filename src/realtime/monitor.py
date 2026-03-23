@@ -205,14 +205,28 @@ class RealtimeMonitor:
     def _polling_loop(self) -> None:
         """Main polling loop for real-time data."""
         logger.info("Polling loop started")
+        poll_count = 0
 
         try:
             while self._running and not self._stop_event.is_set():
+                poll_count += 1
                 try:
-                    self._poll_once()
+                    records = self._poll_once()
                 except Exception as e:
                     logger.error(f"Error in polling loop: {e}", exc_info=True)
                     self._stats["errors"] += 1
+                    records = 0
+
+                # Status line
+                now = datetime.now().strftime("%H:%M:%S")
+                total = self._stats["records_processed"]
+                if records > 0:
+                    print(f"  [{now}] +{records} records (total: {total})", flush=True)
+                elif poll_count == 1 or poll_count % 10 == 0:
+                    # Show heartbeat every 10 polls (or first poll)
+                    status = "waiting" if not self.jvlink._is_open else "no updates"
+                    print(f"  [{now}] {status} (total: {total}, polls: {poll_count})",
+                          flush=True)
 
                 # Wait for next polling interval
                 if not self._stop_event.wait(timeout=self.polling_interval):
@@ -225,8 +239,12 @@ class RealtimeMonitor:
         finally:
             logger.info("Polling loop ended")
 
-    def _poll_once(self) -> None:
-        """Poll JV-Link once for new data."""
+    def _poll_once(self) -> int:
+        """Poll JV-Link once for new data.
+
+        Returns:
+            Number of records processed in this poll.
+        """
         logger.debug("Polling JV-Link for updates")
 
         # Update key if date changed (midnight rollover)
@@ -245,10 +263,10 @@ class RealtimeMonitor:
             ret_code = self._rt_open()
             if ret_code == -1:
                 logger.debug("Still no data available, will retry next poll")
-                return
+                return 0
             elif ret_code != JV_RT_SUCCESS:
                 logger.debug(f"JVRTOpen returned {ret_code}, will retry next poll")
-                return
+                return 0
 
         records_in_poll = 0
 
@@ -297,6 +315,8 @@ class RealtimeMonitor:
                 f"Processed {records_in_poll} records in this poll",
                 total_processed=self._stats["records_processed"],
             )
+
+        return records_in_poll
 
     def _signal_handler(self, signum, frame):
         """Handle signals for graceful shutdown.
