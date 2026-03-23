@@ -441,24 +441,22 @@ def prefetch_races(wrapper, conn, date_str: str, is_nar: bool):
         p("  差分データなし")
         return 0
 
-    # ダウンロード待ち
+    # ダウンロード待ち: NVStatusは 0(初期)→>0(進行中)→0(完了) と遷移する
+    # 最初の0は「まだ始まっていない」なので、>0を一度確認してから0を待つ
     if download_count > 0:
         p(f"  ダウンロード中 ({download_count}件)...")
+        download_started = False
         for i in range(120):
             st = wrapper.jv_status()
-            if st == 0:
+            if st > 0:
+                download_started = True
+            elif st == 0 and download_started:
                 p("  ダウンロード完了")
                 break
-            elif st > 0:
-                # ダウンロード進行中（残りパーセント）
-                pass
-            else:
-                # st < 0: エラーだがダウンロード中は無視して待つ
-                # (-203はダウンロード進行中にも返る)
-                pass
             _time.sleep(1)
         else:
-            p(f"  ダウンロードタイムアウト (120s, last status={st})")
+            # タイムアウトでもNVReadは既にキャッシュ済みファイルを読めるので続行
+            p(f"  ダウンロード待ちタイムアウト (続行します, status={st})")
 
     factory = ParserFactory()
     ra_count = 0

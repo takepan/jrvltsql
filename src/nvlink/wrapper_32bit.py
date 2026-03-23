@@ -358,6 +358,11 @@ class NVLinkWrapper:
             elif result == NV_READ_NO_MORE_DATA:
                 return result, None, None
 
+            elif result == -3:
+                # -3: ファイル未ダウンロード（スキップ可能）
+                logger.debug("NVRead: file not yet downloaded", error_code=result)
+                return result, None, None
+
             else:
                 logger.error("NVRead failed", error_code=result)
                 raise NVLinkError("NVRead failed", error_code=result)
