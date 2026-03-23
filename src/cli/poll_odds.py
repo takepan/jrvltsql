@@ -123,8 +123,12 @@ def trigger_rtd_cache(wrapper, date_str: str, jyocd: str, racenum: int):
     key = f"{date_str}{jyocd}{rr}"
     for spec in NAR_RTD_TRIGGER_SPECS:
         try:
+            t0 = time.time()
             wrapper.jv_rt_open(spec, key=key)
             wrapper.jv_close()
+            elapsed = time.time() - t0
+            if elapsed > 5:
+                p(f"  WARNING: {spec} key={key} took {elapsed:.1f}s")
         except Exception:
             try:
                 wrapper.jv_close()
@@ -556,9 +560,8 @@ def run_poll_odds(wrapper, conn, date_str: str, is_nar: bool):
             cnt, dk = fetch_race_odds(wrapper, conn, key, table_map, factory, ts_table_map)
             cycle_total += cnt
 
-            # rtdキャッシュ: fullモード時のみトリガー＋読み取り
-            # urgentモードではNVRTOpen(0B30)のみで高速に回す
-            if is_nar and mode == "full":
+            # rtdキャッシュ更新トリガー → 読み取り (NAR)
+            if is_nar:
                 trigger_rtd_cache(wrapper, date_str, jyocd, racenum)
                 rtd_cnt = import_rtd_odds(conn, date_str, jyocd, racenum,
                                           table_map, ts_table_map, factory)
