@@ -68,7 +68,7 @@ class RealtimeMonitor:
                 "Please run separate monitors for JRA and NAR (--source jra / --source nar)."
             )
         elif data_source == DataSource.NAR:
-            from src.nvlink.wrapper import NVLinkWrapper
+            from src.nvlink.wrapper_32bit import NVLinkWrapper
             self.jvlink = NVLinkWrapper(sid=sid, initialization_key=initialization_key)
         else:
             from src.jvlink.wrapper import JVLinkWrapper

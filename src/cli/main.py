@@ -996,15 +996,16 @@ def fetch(ctx, date_from, date_to, data_spec, jv_option, db, batch_size, progres
     default="jra",
     help="データソース選択（jra=中央競馬, nar=地方競馬, all=両方）",
 )
+@click.option("--nar", is_flag=True, help="地方競馬モード（--source nar のショートカット）")
 @click.pass_context
-def monitor(ctx, daemon, data_spec, interval, db, source):
+def monitor(ctx, daemon, data_spec, interval, db, source, nar):
     """Start real-time monitoring.
 
     \b
     Examples:
       jltsql monitor                        # 中央競馬監視
-      jltsql monitor --source nar           # 地方競馬監視
-      jltsql monitor --source all           # 両方監視
+      jltsql monitor --nar                  # 地方競馬監視
+      jltsql monitor --source nar           # 同上
       jltsql monitor --daemon               # バックグラウンド実行
     """
     from src.database.sqlite_handler import SQLiteDatabase
@@ -1013,14 +1014,17 @@ def monitor(ctx, daemon, data_spec, interval, db, source):
     from src.realtime.monitor import RealtimeMonitor
     from src.utils.data_source import DataSource
 
+    # --nar flag overrides --source
+    if nar:
+        source = "nar"
+
     # Convert source to DataSource enum
     data_source = DataSource.from_string(source)
 
     # Check if NAR/UmaConn is available
-    if data_source == DataSource.NAR:
+    if data_source in (DataSource.NAR, DataSource.ALL):
         try:
-            # Try to import NVLinkWrapper to check if UmaConn is available
-            from src.nvlink import NVLinkWrapper
+            from src.nvlink.wrapper_32bit import NVLinkWrapper
         except ImportError:
             console.print("[red]エラー:[/red] UmaConn (地方競馬DATA) がインストールされていません。")
             console.print("地方競馬DATAのセットアップを完了してください。")
