@@ -1137,24 +1137,28 @@ def monitor(ctx, daemon, data_spec, interval, db, source, nar):
 @cli.command()
 @click.option("--date", "date_str", default=None,
               help="対象日 YYYYMMDD (default: today)")
+@click.option("--nar", is_flag=True, help="地方競馬モード")
 @click.pass_context
-def today(ctx, date_str):
+def today(ctx, date_str, nar):
     """当日のDM・TM・オッズをリアルタイムAPIで取得してPostgreSQLにupsert.
 
     \b
-    JVRTOpenで以下を取得:
+    JRA (デフォルト):
       速報系: DM(0B13), TM(0B17)
       時系列: O1-O6(0B30-0B36) ※レース単位で全オッズ
 
+    NAR (--nar):
+      結果・払戻: RA/SE/HR(0B12)
+      オッズ: O1-O6(0B30) ※レース単位
+
     \b
     Examples:
-      jltsql today                    # 本日分を取得
+      jltsql today                    # JRA本日分を取得
+      jltsql today --nar              # NAR本日分を取得
       jltsql today --date 20260322    # 指定日を取得
     """
     import datetime as dt
     import pg8000.native
-    from src.jvlink.wrapper import JVLinkWrapper
-    from src.cli.fetch_today import run_fetch_today
 
     config = ctx.obj.get("config")
 
@@ -1171,12 +1175,22 @@ def today(ctx, date_str):
         console.print("[red]Error:[/red] PostgreSQL設定が見つかりません。config.yamlを確認してください。")
         sys.exit(1)
 
-    console.print(f"[bold cyan]当日データ取得 ({date_str})[/bold cyan]\n")
+    source_label = "NAR" if nar else "JRA"
+    console.print(f"[bold cyan]当日データ取得 {source_label} ({date_str})[/bold cyan]\n")
 
     try:
-        # JVLink初期化
-        sid = config.get("jvlink.sid", "JLTSQL") if config else "JLTSQL"
-        wrapper = JVLinkWrapper(sid=sid)
+        # Wrapper初期化
+        if nar:
+            from src.nvlink.wrapper_32bit import NVLinkWrapper
+            from src.cli.fetch_today import run_fetch_today_nar
+            init_key = config.get("nvlink.initialization_key", "UNKNOWN") if config else "UNKNOWN"
+            wrapper = NVLinkWrapper(sid="UNKNOWN", initialization_key=init_key)
+        else:
+            from src.jvlink.wrapper import JVLinkWrapper
+            from src.cli.fetch_today import run_fetch_today
+            sid = config.get("jvlink.sid", "JLTSQL") if config else "JLTSQL"
+            wrapper = JVLinkWrapper(sid=sid)
+
         wrapper.jv_init()
 
         # DB接続
@@ -1189,7 +1203,10 @@ def today(ctx, date_str):
         )
 
         try:
-            result = run_fetch_today(wrapper, conn, date_str)
+            if nar:
+                result = run_fetch_today_nar(wrapper, conn, date_str)
+            else:
+                result = run_fetch_today(wrapper, conn, date_str)
         finally:
             conn.close()
 

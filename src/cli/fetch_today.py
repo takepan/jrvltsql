@@ -1,8 +1,12 @@
 """jltsql today サブコマンド — 当日のDM・TM・オッズをリアルタイムAPIで取得
 
-JVRTOpen で以下を取得し PostgreSQL に upsert する:
+JRA: JVRTOpen で以下を取得し PostgreSQL に upsert:
 - 速報系: DM(0B13), TM(0B17)  key=YYYYMMDD
 - 時系列: O1-O6(0B30-0B36)    key=YYYYMMDDJJKKNNRR (レース単位)
+
+NAR: NVRTOpen で以下を取得し PostgreSQL に upsert:
+- 0B12: RA/SE/HR (結果・払戻)  key=YYYYMMDD
+- 0B30: O1-O6 (全オッズ一括)   key=YYYYMMDDJJRR (レース単位)
 """
 
 import datetime
@@ -388,5 +392,248 @@ def run_fetch_today(wrapper, conn, date_str: str):
         "dm": dm_total, "tm": tm_total,
         "o1": o1_total, "o2": o2_total, "o3": o3_total,
         "o4": o4_total, "o5": o5_total, "o6": o6_total,
+        "elapsed": elapsed,
+    }
+
+
+# ── NAR (地方競馬) ──
+
+NAR_JYOCD_NAMES = {
+    '30': '門別', '33': '帯広', '35': '盛岡', '36': '水沢',
+    '42': '浦和', '43': '船橋', '44': '大井', '45': '川崎',
+    '46': '金沢', '47': '笠松', '48': '名古屋',
+    '50': '園田', '51': '姫路', '54': '高知', '55': '佐賀',
+}
+
+NAR_TABLE_MAP_0B12 = {
+    'RA': ('nl_ra_nar', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum']),
+    'SE': ('nl_se_nar', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'umaban']),
+    'HR': ('nl_hr_nar', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum']),
+}
+
+
+def _sanitize(val):
+    if isinstance(val, str) and (val.strip() == "" or val.strip("* ") == ""):
+        return None
+    return val
+
+
+def _generic_upsert(conn, table, record, pk_cols):
+    """汎用 ON CONFLICT upsert"""
+    record = {k: _sanitize(v) for k, v in record.items()}
+    cols = list(record.keys())
+    cols_str = ", ".join(cols)
+    placeholders = ", ".join(f":{c}" for c in cols)
+    pk_str = ", ".join(pk_cols)
+    up_cols = [c for c in cols if c.lower() not in [pk.lower() for pk in pk_cols]]
+    if up_cols:
+        up_str = ", ".join(f"{c} = EXCLUDED.{c}" for c in up_cols)
+        sql = f"INSERT INTO {table} ({cols_str}) VALUES ({placeholders}) ON CONFLICT ({pk_str}) DO UPDATE SET {up_str}"
+    else:
+        sql = f"INSERT INTO {table} ({cols_str}) VALUES ({placeholders}) ON CONFLICT ({pk_str}) DO NOTHING"
+    conn.run(sql, **record)
+
+
+def fetch_nar_results(wrapper, conn, date_str):
+    """NAR 0B12: RA/SE/HR を NVRTOpen→NVRead で取得"""
+    from src.parser.factory import ParserFactory
+
+    p(f"\n--- NAR 結果・払戻 (0B12, key={date_str}) ---")
+
+    try:
+        result, read_count = wrapper.jv_rt_open("0B12", key=date_str)
+    except Exception as e:
+        p(f"  NVRTOpen失敗: {e}")
+        return {}
+
+    if result < 0:
+        p(f"  データなし (result={result})")
+        return {}
+
+    factory = ParserFactory()
+    counts = {"RA": 0, "SE": 0, "HR": 0}
+
+    for _ in range(200000):
+        try:
+            ret_code, buff, _fname = wrapper.jv_read()
+        except Exception:
+            break
+        if ret_code == 0:
+            break
+        elif ret_code <= 0:
+            continue
+        if not buff or len(buff) < 2:
+            continue
+
+        rt = buff[:2].decode('cp932', errors='replace')
+        if rt not in NAR_TABLE_MAP_0B12:
+            continue
+
+        try:
+            parser = factory.get_parser(rt)
+            if parser is None:
+                continue
+            parsed = parser.parse(buff)
+            if parsed is None:
+                continue
+            records = parsed if isinstance(parsed, list) else [parsed]
+            for rec in records:
+                rs = rec.get('RecordSpec', rt)
+                mapping = NAR_TABLE_MAP_0B12.get(rs)
+                if mapping is None:
+                    continue
+                table, pk = mapping
+                _generic_upsert(conn, table, rec, pk)
+                counts[rs] = counts.get(rs, 0) + 1
+        except Exception:
+            pass
+
+    try:
+        wrapper.jv_close()
+    except Exception:
+        pass
+
+    p(f"  RA: {counts.get('RA', 0)}, SE: {counts.get('SE', 0)}, HR: {counts.get('HR', 0)}")
+    return counts
+
+
+def fetch_nar_odds(wrapper, conn, date_str, races):
+    """NAR 0B30: 全オッズ一括をレース単位で取得"""
+    from src.parser.factory import ParserFactory
+
+    p(f"\n--- NAR オッズ (0B30, {len(races)}レース) ---")
+
+    factory = ParserFactory()
+    # NAR O1-O6 テーブル + PKマッピング
+    odds_table_map = {
+        'O1': ('nl_o1_nar', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'umaban']),
+        'O1W': ('nl_o1_waku_nar', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'kumi']),
+        'O2': ('nl_o2_nar', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'kumi']),
+        'O3': ('nl_o3_nar', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'kumi']),
+        'O4': ('nl_o4_nar', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'kumi']),
+        'O5': ('nl_o5_nar', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'kumi']),
+        'O6': ('nl_o6_nar', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'kumi']),
+    }
+
+    total = 0
+    race_ok = 0
+    race_skip = 0
+
+    for jyocd, racenum in races:
+        jyocd_s = str(jyocd).zfill(2) if isinstance(jyocd, int) else jyocd
+        rr = f"{int(racenum):02d}"
+        key = f"{date_str}{jyocd_s}{rr}"
+
+        try:
+            result, read_count = wrapper.jv_rt_open("0B30", key=key)
+        except Exception as e:
+            err_code = getattr(e, 'error_code', None)
+            if err_code not in (-301, -302):
+                pass  # skip silently
+            race_skip += 1
+            continue
+
+        if result < 0:
+            race_skip += 1
+            continue
+
+        rec_count = 0
+        for _ in range(100000):
+            try:
+                ret_code, buff, _fname = wrapper.jv_read()
+            except Exception:
+                break
+            if ret_code == 0:
+                break
+            elif ret_code <= 0:
+                continue
+            if not buff or len(buff) < 2:
+                continue
+
+            rt = buff[:2].decode('cp932', errors='replace')
+            try:
+                parser = factory.get_parser(rt)
+                if parser is None:
+                    continue
+                parsed = parser.parse(buff)
+                if parsed is None:
+                    continue
+                records = parsed if isinstance(parsed, list) else [parsed]
+                for rec in records:
+                    rs = rec.get('RecordSpec', rt)
+                    mapping = odds_table_map.get(rs)
+                    if mapping is None:
+                        continue
+                    table, pk = mapping
+                    _generic_upsert(conn, table, rec, pk)
+                    rec_count += 1
+            except Exception:
+                pass
+
+        try:
+            wrapper.jv_close()
+        except Exception:
+            pass
+
+        total += rec_count
+        if rec_count > 0:
+            race_ok += 1
+
+    p(f"  レース: {race_ok}件取得, {race_skip}件スキップ, DB登録: {total}")
+    return total
+
+
+def get_nar_today_races(conn, date_str):
+    """DBからNAR当日レース一覧を取得 (jyocd, racenum)"""
+    year = int(date_str[:4])
+    monthday = int(date_str[4:])
+    rows = conn.run("""
+        SELECT DISTINCT jyocd, racenum
+        FROM nl_ra_nar
+        WHERE year = :y AND monthday = :md
+        ORDER BY jyocd, racenum
+    """, y=year, md=monthday)
+    return rows
+
+
+def run_fetch_today_nar(wrapper, conn, date_str: str):
+    """NAR版メインロジック: 結果(0B12) + オッズ(0B30) を取得してDBにupsert
+
+    Args:
+        wrapper: NVLinkWrapper (jv_rt_open/jv_read/jv_close を持つ)
+        conn: pg8000.native.Connection
+        date_str: YYYYMMDD
+    """
+    p(f"=== fetch today NAR ({date_str}) ===")
+
+    races = get_nar_today_races(conn, date_str)
+    p(f"本日のNARレース: {len(races)}R")
+    if races:
+        jyo_set = sorted(set(str(r[0]).zfill(2) if isinstance(r[0], int) else r[0]
+                              for r in races))
+        p(f"  開催場: {', '.join(NAR_JYOCD_NAMES.get(j, j) for j in jyo_set)}")
+
+    t0 = time.time()
+
+    # 結果・払戻 (0B12, key=YYYYMMDD)
+    result_counts = fetch_nar_results(wrapper, conn, date_str)
+
+    # オッズ (0B30, key=YYYYMMDDJJrr)
+    if not races:
+        p("\nNARレース情報がDBにないため、オッズ取得をスキップ")
+        odds_total = 0
+    else:
+        odds_total = fetch_nar_odds(wrapper, conn, date_str, races)
+
+    elapsed = time.time() - t0
+    p(f"\n完了 ({elapsed:.1f}s)")
+    p(f"  RA: {result_counts.get('RA', 0)}件  SE: {result_counts.get('SE', 0)}件  HR: {result_counts.get('HR', 0)}件")
+    p(f"  オッズ: {odds_total}件")
+
+    return {
+        "ra": result_counts.get("RA", 0),
+        "se": result_counts.get("SE", 0),
+        "hr": result_counts.get("HR", 0),
+        "odds": odds_total,
         "elapsed": elapsed,
     }
