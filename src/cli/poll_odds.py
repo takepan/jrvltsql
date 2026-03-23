@@ -550,13 +550,15 @@ def run_poll_odds(wrapper, conn, date_str: str, is_nar: bool):
 
         cycle_total = 0
         rtd_total = 0
+        rtd_cnt = 0
         for jyocd, kaiji, nichiji, racenum, hasso_dt in targets:
             key = f"{date_str}{jyocd}{racenum:02d}"
             cnt, dk = fetch_race_odds(wrapper, conn, key, table_map, factory, ts_table_map)
             cycle_total += cnt
 
-            # rtdキャッシュ更新トリガー → 読み取り (NAR)
-            if is_nar:
+            # rtdキャッシュ: fullモード時のみトリガー＋読み取り
+            # urgentモードではNVRTOpen(0B30)のみで高速に回す
+            if is_nar and mode == "full":
                 trigger_rtd_cache(wrapper, date_str, jyocd, racenum)
                 rtd_cnt = import_rtd_odds(conn, date_str, jyocd, racenum,
                                           table_map, ts_table_map, factory)
