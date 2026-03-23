@@ -305,9 +305,6 @@ def fetch_race_odds(wrapper, conn, key: str, table_map: dict, factory: ParserFac
 
     total = 0
     datakubun = None
-    # バッチ: {(table, pk_tuple): [records]}
-    batches = {}
-    ts_batches = {}
 
     for _ in range(200000):
         try:
@@ -337,22 +334,16 @@ def fetch_race_odds(wrapper, conn, key: str, table_map: dict, factory: ParserFac
                 if mapping is None:
                     continue
                 tbl, pk = mapping
-                batch_key = (tbl, tuple(pk))
-                if batch_key not in batches:
-                    batches[batch_key] = []
-                batches[batch_key].append({k: _sanitize(v) for k, v in rec.items()})
-
+                _generic_upsert(conn, tbl, rec, pk)
+                # 時系列テーブルにも書き込み (FetchedAt付与)
                 if ts_table_map:
                     ts_mapping = ts_table_map.get(rs)
                     if ts_mapping:
                         ts_tbl, ts_pk = ts_mapping
-                        ts_rec = {k: _sanitize(v) for k, v in rec.items()}
+                        ts_rec = dict(rec)
                         ts_rec["FetchedAt"] = fetched_at
                         ts_rec["Source"] = "api"
-                        ts_key = (ts_tbl, tuple(ts_pk))
-                        if ts_key not in ts_batches:
-                            ts_batches[ts_key] = []
-                        ts_batches[ts_key].append(ts_rec)
+                        _generic_upsert(conn, ts_tbl, ts_rec, ts_pk)
                 total += 1
         except Exception:
             pass
@@ -361,30 +352,6 @@ def fetch_race_odds(wrapper, conn, key: str, table_map: dict, factory: ParserFac
         wrapper.jv_close()
     except Exception:
         pass
-
-    # バッチupsert (500件ずつ)
-    CHUNK = 500
-    for (tbl, pk), recs in batches.items():
-        for i in range(0, len(recs), CHUNK):
-            try:
-                _batch_upsert(conn, tbl, recs[i:i+CHUNK], list(pk))
-            except Exception:
-                # フォールバック: 1件ずつ
-                for rec in recs[i:i+CHUNK]:
-                    try:
-                        _generic_upsert(conn, tbl, rec, list(pk))
-                    except Exception:
-                        pass
-    for (tbl, pk), recs in ts_batches.items():
-        for i in range(0, len(recs), CHUNK):
-            try:
-                _batch_upsert(conn, tbl, recs[i:i+CHUNK], list(pk))
-            except Exception:
-                for rec in recs[i:i+CHUNK]:
-                    try:
-                        _generic_upsert(conn, tbl, rec, list(pk))
-                    except Exception:
-                        pass
 
     return total, datakubun
 
@@ -671,6 +638,12 @@ def run_poll_odds(wrapper, conn, date_str: str, is_nar: bool, pg_config: dict = 
 
         if not active:
             p(f"全{len(races)}レース確定。終了します。")
+            break
+
+        # 最終レース発走から2時間経過で自動終了
+        last_hasso = max((h for _, _, _, _, h in races if h is not None), default=None)
+        if last_hasso and (now_dt - last_hasso).total_seconds() > 7200:
+            p(f"最終レースから2時間経過。終了します。(確定={len(confirmed)}/{len(races)})")
             break
 
         urgent, pending, next_hasso = categorize_races(races, confirmed, now_dt)
