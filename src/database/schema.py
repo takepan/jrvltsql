@@ -2562,6 +2562,7 @@ SCHEMAS = {
             FukuVote BIGINT,
             WakurenVote BIGINT,
             FetchedAt TEXT,
+            Source TEXT,
             PRIMARY KEY (Year, MonthDay, JyoCD, Kaiji, Nichiji, RaceNum, Umaban, HassoTime, FetchedAt)
         )
     """,
@@ -2583,6 +2584,7 @@ SCHEMAS = {
             WakurenNinki INTEGER,
             WakurenVote BIGINT,
             FetchedAt TEXT,
+            Source TEXT,
             PRIMARY KEY (Year, MonthDay, JyoCD, Kaiji, Nichiji, RaceNum, Kumi, HassoTime, FetchedAt)
         )
     """,
@@ -2606,6 +2608,7 @@ SCHEMAS = {
             Ninki INTEGER,
             Vote BIGINT,
             FetchedAt TEXT,
+            Source TEXT,
             PRIMARY KEY (Year, MonthDay, JyoCD, Kaiji, Nichiji, RaceNum, Kumi, HassoTime, FetchedAt)
         )
     """,
@@ -2630,6 +2633,7 @@ SCHEMAS = {
             Ninki INTEGER,
             Vote BIGINT,
             FetchedAt TEXT,
+            Source TEXT,
             PRIMARY KEY (Year, MonthDay, JyoCD, Kaiji, Nichiji, RaceNum, Kumi, HassoTime, FetchedAt)
         )
     """,
@@ -2653,6 +2657,7 @@ SCHEMAS = {
             Ninki INTEGER,
             Vote BIGINT,
             FetchedAt TEXT,
+            Source TEXT,
             PRIMARY KEY (Year, MonthDay, JyoCD, Kaiji, Nichiji, RaceNum, Kumi, HassoTime, FetchedAt)
         )
     """,
@@ -2676,6 +2681,7 @@ SCHEMAS = {
             Ninki INTEGER,
             Vote BIGINT,
             FetchedAt TEXT,
+            Source TEXT,
             PRIMARY KEY (Year, MonthDay, JyoCD, Kaiji, Nichiji, RaceNum, Kumi, HassoTime, FetchedAt)
         )
     """,
@@ -2699,6 +2705,7 @@ SCHEMAS = {
             Ninki INTEGER,
             Vote BIGINT,
             FetchedAt TEXT,
+            Source TEXT,
             PRIMARY KEY (Year, MonthDay, JyoCD, Kaiji, Nichiji, RaceNum, Kumi, HassoTime, FetchedAt)
         )
     """,

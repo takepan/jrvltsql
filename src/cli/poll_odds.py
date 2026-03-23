@@ -172,6 +172,7 @@ def import_rtd_odds(conn, date_str: str, jyocd: str, racenum: int,
                         ts_tbl, ts_pk = ts_mapping
                         ts_rec = dict(rec)
                         ts_rec["FetchedAt"] = fetched_at
+                        ts_rec["Source"] = "rtd"
                         _generic_upsert(conn, ts_tbl, ts_rec, ts_pk)
                         total += 1
             except Exception:
@@ -341,6 +342,7 @@ def fetch_race_odds(wrapper, conn, key: str, table_map: dict, factory: ParserFac
                         ts_tbl, ts_pk = ts_mapping
                         ts_rec = dict(rec)
                         ts_rec["FetchedAt"] = fetched_at
+                        ts_rec["Source"] = "api"
                         _generic_upsert(conn, ts_tbl, ts_rec, ts_pk)
                 total += 1
         except Exception:
