@@ -553,18 +553,17 @@ def _run_full_cycle(date_str: str, is_nar: bool, pg_config: dict):
               for j, r in rows if (str(j).zfill(2) if isinstance(j, int) else j, int(r)) not in confirmed]
 
     odds_count = 0
-    rtd_count = 0
     for jyocd, racenum in active:
         key = f"{date_str}{jyocd}{racenum:02d}"
         cnt, _ = fetch_race_odds(w, conn, key, table_map, factory, ts_table_map)
         odds_count += cnt
 
-        if is_nar:
-            trigger_rtd_cache(w, date_str, jyocd, racenum)
+    # rtdは読み取りのみ（トリガーなし — メインプロセスのurgentで更新済み）
+    rtd_count = 0
+    if is_nar:
+        for jyocd, racenum in active:
             rtd_cnt = import_rtd_odds(conn, date_str, jyocd, racenum, ts_table_map, factory)
             rtd_count += rtd_cnt
-
-    if is_nar:
         import_rtd_results(conn, date_str, factory)
 
     new_confirmed = len(get_confirmed_races(conn, date_str, is_nar))
