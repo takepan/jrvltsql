@@ -537,6 +537,10 @@ def run_poll_odds(wrapper, conn, date_str: str, is_nar: bool, pg_config: dict = 
 
     def _full_loop():
         """バックグラウンド: 5分間隔で全未確定レースのオッズを取得"""
+        # 別スレッドではCOM初期化が必要
+        import pythoncom
+        pythoncom.CoInitialize()
+
         # 別wrapper・別DB接続（スレッドごとにCOM/接続が必要）
         if is_nar:
             from src.nvlink.wrapper_32bit import NVLinkWrapper as _NV
