@@ -987,7 +987,7 @@ def fetch(ctx, date_from, date_to, data_spec, jv_option, db, batch_size, progres
 
 @cli.command()
 @click.option("--daemon", is_flag=True, help="Run in background")
-@click.option("--spec", "data_spec", default="RACE", help="Data specification (default: RACE)")
+@click.option("--spec", "data_spec", default="0B12", help="Realtime data spec (default: 0B12)")
 @click.option("--interval", default=60, help="Polling interval in seconds (default: 60)")
 @click.option("--db", type=click.Choice(["sqlite", "postgresql"]), default=None, help="Database type (default: from config)")
 @click.option(

@@ -36,7 +36,7 @@ class RealtimeMonitor:
     def __init__(
         self,
         database,
-        data_spec: str = "RACE",
+        data_spec: str = "0B12",
         polling_interval: int = 60,
         sid: str = "REALTIME",
         initialization_key: Optional[str] = None,
@@ -46,7 +46,7 @@ class RealtimeMonitor:
 
         Args:
             database: Database handler instance
-            data_spec: Data specification code (default: "RACE")
+            data_spec: Realtime data specification code (default: "0B12")
             polling_interval: Polling interval in seconds (default: 60)
             sid: Session ID for JV-Link API (default: "REALTIME")
             initialization_key: Optional NV-Link initialization key (software ID)
@@ -121,7 +121,12 @@ class RealtimeMonitor:
             ret_code = int(rt_result[0])
         else:
             ret_code = int(rt_result)
-        if ret_code != JV_RT_SUCCESS:
+
+        if ret_code == -1:
+            # No data available (non-race day or no updates yet)
+            # Start polling loop anyway — data will appear when races begin
+            logger.info("JVRTOpen: no data yet (non-race day?), will keep polling")
+        elif ret_code != JV_RT_SUCCESS:
             logger.error(f"Failed to open real-time stream: {ret_code}")
             raise RuntimeError(f"JVRTOpen failed with code {ret_code}")
 
@@ -209,6 +214,21 @@ class RealtimeMonitor:
     def _poll_once(self) -> None:
         """Poll JV-Link once for new data."""
         logger.debug("Polling JV-Link for updates")
+
+        # Re-open stream if not open (e.g., after -1 on non-race day)
+        if not self.jvlink._is_open:
+            try:
+                rt_result = self.jvlink.jv_rt_open(self.data_spec)
+                ret_code = int(rt_result[0]) if isinstance(rt_result, tuple) else int(rt_result)
+                if ret_code == -1:
+                    logger.debug("Still no data available, will retry next poll")
+                    return
+                elif ret_code != JV_RT_SUCCESS:
+                    logger.warning(f"JVRTOpen returned {ret_code}, will retry next poll")
+                    return
+            except Exception as e:
+                logger.warning(f"Failed to re-open stream: {e}, will retry next poll")
+                return
 
         records_in_poll = 0
 
