@@ -1146,6 +1146,87 @@ def monitor(ctx, daemon, data_spec, interval, db, source, nar):
               help="対象日 YYYYMMDD (default: today)")
 @click.option("--nar", is_flag=True, help="地方競馬モード")
 @click.pass_context
+def odds(ctx, date_str, nar):
+    """発走時刻ベースのオッズ自動取得.
+
+    \b
+    発走5分以内のレースがあれば:
+      → そのレースのオッズを取得 → 1分サイクル
+    なければ:
+      → 発走前の全レースのオッズを取得
+      → 直近の発走5分前 or 5分後までスリープ
+    全レース確定で自動終了。
+
+    \b
+    Examples:
+      jltsql odds                     # JRA当日オッズ取得
+      jltsql odds --nar               # NAR当日オッズ取得
+      jltsql odds --date 20260322     # 指定日
+    """
+    import datetime as dt
+    import pg8000.native
+    from src.cli.poll_odds import run_poll_odds
+
+    config = ctx.obj.get("config")
+
+    if date_str is None:
+        date_str = dt.date.today().strftime("%Y%m%d")
+
+    # PostgreSQL接続
+    if config:
+        pg_config = config.get("databases.postgresql")
+    else:
+        pg_config = None
+
+    if not pg_config:
+        console.print("[red]Error:[/red] PostgreSQL設定が見つかりません。config.yamlを確認してください。")
+        sys.exit(1)
+
+    source_label = "NAR" if nar else "JRA"
+    console.print(f"[bold cyan]オッズ取得 {source_label} ({date_str})[/bold cyan]\n")
+
+    try:
+        # Wrapper初期化
+        if nar:
+            from src.nvlink.wrapper_32bit import NVLinkWrapper
+            init_key = config.get("nvlink.initialization_key", "UNKNOWN") if config else "UNKNOWN"
+            wrapper = NVLinkWrapper(sid="UNKNOWN", initialization_key=init_key)
+        else:
+            from src.jvlink.wrapper import JVLinkWrapper
+            sid = config.get("jvlink.sid", "JLTSQL") if config else "JLTSQL"
+            wrapper = JVLinkWrapper(sid=sid)
+
+        wrapper.jv_init()
+
+        # DB接続
+        conn = pg8000.native.Connection(
+            host=pg_config.get("host", "localhost"),
+            port=pg_config.get("port", 5432),
+            database=pg_config.get("database", "keiba"),
+            user=pg_config.get("user", "jltsql"),
+            password=pg_config.get("password", ""),
+        )
+        conn.autocommit = True
+
+        try:
+            run_poll_odds(wrapper, conn, date_str, is_nar=nar)
+        finally:
+            conn.close()
+
+    except KeyboardInterrupt:
+        console.print("\n[yellow]中断されました[/yellow]")
+        sys.exit(0)
+    except Exception as e:
+        console.print(f"\n[red]Error:[/red] {e}", style="bold")
+        logger.error("odds command failed", error=str(e), exc_info=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.option("--date", "date_str", default=None,
+              help="対象日 YYYYMMDD (default: today)")
+@click.option("--nar", is_flag=True, help="地方競馬モード")
+@click.pass_context
 def today(ctx, date_str, nar):
     """当日のDM・TM・オッズをリアルタイムAPIで取得してPostgreSQLにupsert.
 
