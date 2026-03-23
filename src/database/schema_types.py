@@ -13,7 +13,7 @@ from src.database.schema import SCHEMAS
 _table_column_types_cache: Dict[str, Dict[str, str]] = {}
 
 # コンパイル済み正規表現パターン
-_column_pattern = re.compile(r'^\s*(\w+)\s+(INTEGER|BIGINT|REAL|TEXT)\s*[,)]?\s*$', re.MULTILINE)
+_column_pattern = re.compile(r'^\s*(\w+)\s+(INTEGER|BIGINT|REAL|NUMERIC\(\d+,\d+\)|TEXT)\s*[,)]?\s*$', re.MULTILINE)
 
 
 def get_table_column_types(table_name: str) -> Dict[str, str]:
@@ -123,7 +123,7 @@ def is_numeric_column(table_name: str, column_name: str) -> bool:
         False
     """
     column_type = get_column_type(table_name, column_name)
-    return column_type in ("INTEGER", "BIGINT", "REAL")
+    return column_type in ("INTEGER", "BIGINT", "REAL") or (column_type and column_type.startswith("NUMERIC"))
 
 
 def is_text_column(table_name: str, column_name: str) -> bool:
@@ -195,9 +195,9 @@ if __name__ == "__main__":
     test_cases = [
         ("NL_RA", "Year", "INTEGER"),
         ("NL_RA", "JyoCD", "TEXT"),
-        ("NL_RA", "Honsyokin1", "REAL"),
+        ("NL_RA", "Honsyokin1", "BIGINT"),
         ("NL_SE", "Umaban", "INTEGER"),
-        ("NL_SE", "Time", "REAL"),
+        ("NL_SE", "Time", "NUMERIC(5,1)"),
     ]
 
     for table, column, expected_type in test_cases:
@@ -206,7 +206,7 @@ if __name__ == "__main__":
         is_text = is_text_column(table, column)
         status = "OK" if actual_type == expected_type else "FAIL"
         print(f"  {status}: {table}.{column}")
-        print(f"       Type: {actual_type} (expected: {expected_type})")
+        print(f"       Type: {actual_type!r} (expected: {expected_type!r})")
         print(f"       Numeric: {is_numeric}, Text: {is_text}")
 
     # Test 4: Verify PRIMARY KEY is excluded

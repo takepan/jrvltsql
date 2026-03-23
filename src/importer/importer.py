@@ -23,12 +23,12 @@ logger = get_logger(__name__)
 DIVIDE_BY_10_PREFIXES = frozenset([
     "TanOdds", "FukuOdds", "WakurenOdds", "OddsLow", "OddsHigh",
     "TimeDiff", "HaronTime", "Haron", "LapTime",
-    "Futan",
+    "Futan", "AtoFutan", "MaeFutan", "RecUmaFutan",
     "DMTime", "DMGosa",
 ])
 
 # 完全一致で10で割るべきフィールド名
-DIVIDE_BY_10_EXACT = frozenset(["Odds", "Time"])
+DIVIDE_BY_10_EXACT = frozenset(["Odds", "Time", "RecTime"])
 
 # キャッシュ（フィールド名 → 10で割るべきか）
 _divide_cache: dict = {}
@@ -319,7 +319,7 @@ class DataImporter:
                     else:
                         converted[field_name] = None
 
-                elif col_type == "REAL":
+                elif col_type == "REAL" or col_type.startswith("NUMERIC"):
                     str_value = str(value).strip()
                     if str_value:
                         # Check for invalid/masked values in JV-Data:
