@@ -303,15 +303,16 @@ JVOPEN_VALID_COMBINATIONS = {
         "HOSE", "HOSN",  # HOSE/HOSN are equivalent
         "HOYU",          # 馬名の意味由来
         "COMM",          # コメント情報
-        "SNAP",          # 出馬表
+        "SNAP", "SNPN",  # 出馬表 / 出走別着度数
         "O1", "O2", "O3", "O4", "O5", "O6",  # オッズ
     ],
-    # Option 2 (今週データ): TOKU, RACE, TCVN, RCVN のみ
+    # Option 2 (今週データ): TOKU, RACE, TCVN, RCVN, SNPN
     2: [
         "TOKU",          # 特別登録馬
         "RACE",          # レースデータ
         "TCVN",          # 調教師変更情報
         "RCVN",          # 騎手変更情報
+        "SNPN",          # 出走別着度数
     ],
     # Option 3, 4 (セットアップ): Option 1と同じ
     3: [
@@ -320,7 +321,7 @@ JVOPEN_VALID_COMBINATIONS = {
         "BLOD", "BLDN",
         "MING", "SLOP", "WOOD", "YSCH",
         "HOSE", "HOSN", "HOYU", "COMM",
-        "SNAP",
+        "SNAP", "SNPN",
         "O1", "O2", "O3", "O4", "O5", "O6",
     ],
     4: [
@@ -329,7 +330,7 @@ JVOPEN_VALID_COMBINATIONS = {
         "BLOD", "BLDN",
         "MING", "SLOP", "WOOD", "YSCH",
         "HOSE", "HOSN", "HOYU", "COMM",
-        "SNAP",
+        "SNAP", "SNPN",
         "O1", "O2", "O3", "O4", "O5", "O6",
     ],
 }
