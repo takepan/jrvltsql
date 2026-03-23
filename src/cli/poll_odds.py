@@ -424,8 +424,8 @@ def prefetch_races(wrapper, conn, date_str: str, is_nar: bool):
     ra_pk = ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum']
     se_pk = ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'umaban']
 
-    # 3日前からの差分
-    from_date = (datetime.strptime(date_str, "%Y%m%d") - timedelta(days=3)).strftime("%Y%m%d")
+    # 7日前からの差分（出馬表は数日前に配信されるため余裕をもつ）
+    from_date = (datetime.strptime(date_str, "%Y%m%d") - timedelta(days=7)).strftime("%Y%m%d")
     fromtime = from_date + "000000"
     target_md = int(date_str[4:])
 

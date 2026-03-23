@@ -637,7 +637,7 @@ def prefetch_nar_races(wrapper, conn, date_str: str):
     from datetime import datetime as _dt, timedelta as _td
     from src.parser.factory import ParserFactory
 
-    from_date = (_dt.strptime(date_str, "%Y%m%d") - _td(days=3)).strftime("%Y%m%d")
+    from_date = (_dt.strptime(date_str, "%Y%m%d") - _td(days=7)).strftime("%Y%m%d")
     fromtime = from_date + "000000"
     target_md = int(date_str[4:])
 
