@@ -674,6 +674,10 @@ def run_poll_odds(wrapper, conn, date_str: str, is_nar: bool, pg_config: dict = 
 
         total_odds += urgent_count
 
+        # 毎サイクル: 0B12 rtdから結果取り込み (NAR) → 確定判定が早くなる
+        if is_nar:
+            import_rtd_results(conn, date_str, factory)
+
         # ステータス表示
         ts = now_dt.strftime("%H:%M:%S")
         confirmed_count = len(get_confirmed_races(conn, date_str, is_nar))
