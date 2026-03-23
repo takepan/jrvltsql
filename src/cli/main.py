@@ -1209,7 +1209,7 @@ def odds(ctx, date_str, nar):
         conn.autocommit = True
 
         try:
-            run_poll_odds(wrapper, conn, date_str, is_nar=nar)
+            run_poll_odds(wrapper, conn, date_str, is_nar=nar, pg_config=pg_config)
         finally:
             conn.close()
 
