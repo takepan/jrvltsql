@@ -147,18 +147,21 @@ class RealtimeMonitor:
         self._running = True
         self._stats["started_at"] = datetime.now()
 
-        # Register signal handlers
-        signal.signal(signal.SIGTERM, self._signal_handler)
-        signal.signal(signal.SIGINT, self._signal_handler)
-
         if daemon:
-            # Run in background thread
+            # Register signal handlers for daemon mode
+            signal.signal(signal.SIGTERM, self._signal_handler)
+            signal.signal(signal.SIGINT, self._signal_handler)
             self._thread = threading.Thread(target=self._polling_loop, daemon=True)
             self._thread.start()
             logger.info("Real-time monitor started in background")
         else:
-            # Run in foreground
-            self._polling_loop()
+            # Foreground: let KeyboardInterrupt propagate naturally
+            try:
+                self._polling_loop()
+            except KeyboardInterrupt:
+                pass
+            finally:
+                self.stop()
 
     def stop(self) -> None:
         """Stop real-time monitoring."""
@@ -234,8 +237,6 @@ class RealtimeMonitor:
                         break
                     time.sleep(1)
 
-        except KeyboardInterrupt:
-            logger.info("Received KeyboardInterrupt")
         finally:
             logger.info("Polling loop ended")
 
