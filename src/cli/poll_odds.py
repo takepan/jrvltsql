@@ -444,18 +444,27 @@ def prefetch_races(wrapper, conn, date_str: str, is_nar: bool):
     # ダウンロード待ち
     if download_count > 0:
         p(f"  ダウンロード中 ({download_count}件)...")
-        for _ in range(120):
+        for i in range(120):
             st = wrapper.jv_status()
             if st == 0:
+                p("  ダウンロード完了")
                 break
-            elif st < 0:
-                break
+            elif st > 0:
+                # ダウンロード進行中（残りパーセント）
+                pass
+            else:
+                # st < 0: エラーだがダウンロード中は無視して待つ
+                # (-203はダウンロード進行中にも返る)
+                pass
             _time.sleep(1)
+        else:
+            p(f"  ダウンロードタイムアウト (120s, last status={st})")
 
     factory = ParserFactory()
     ra_count = 0
     se_count = 0
 
+    read_errors = 0
     for _ in range(500000):
         try:
             ret, buff, _ = wrapper.jv_read()
@@ -463,8 +472,15 @@ def prefetch_races(wrapper, conn, date_str: str, is_nar: bool):
             break
         if ret == 0:
             break
-        if ret < 0 or not buff or len(buff) < 2:
+        if ret < 0:
+            read_errors += 1
+            if read_errors > 5:
+                p(f"  読み取りエラー多発 (ret={ret}), 中断")
+                break
             continue
+        if not buff or len(buff) < 2:
+            continue
+        read_errors = 0  # 成功したらリセット
 
         rt = buff[:2].decode('cp932', errors='replace')
         if rt not in ('RA', 'SE'):

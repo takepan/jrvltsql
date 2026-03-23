@@ -655,13 +655,13 @@ def prefetch_nar_races(wrapper, conn, date_str: str):
 
     if download_count > 0:
         p(f"  ダウンロード中 ({download_count}件)...")
-        for _ in range(120):
+        for i in range(120):
             st = wrapper.jv_status()
             if st == 0:
                 break
-            elif st < 0:
-                break
             _time.sleep(1)
+        else:
+            p(f"  ダウンロードタイムアウト (120s)")
 
     factory = ParserFactory()
     ra_pk = ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum']
