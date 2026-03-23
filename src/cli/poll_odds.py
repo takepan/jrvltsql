@@ -206,6 +206,103 @@ def calc_sleep(cycle_start: datetime, urgent: bool, next_hasso: Optional[datetim
     return max(sleep_sec, 5)
 
 
+# ── prefetch race entries via historical API ──
+
+def prefetch_races(wrapper, conn, date_str: str, is_nar: bool):
+    """NVOpen/JVOpen差分で当日の出馬表(RA/SE)をDBにupsert。
+
+    0B12(リアルタイム)は確定レースしか返さないため、
+    未発走レースの出馬表は履歴APIで事前取得する必要がある。
+    """
+    import time as _time
+
+    ra_table = "nl_ra_nar" if is_nar else "nl_ra"
+    se_table = "nl_se_nar" if is_nar else "nl_se"
+    ra_pk = ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum']
+    se_pk = ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'umaban']
+
+    # 3日前からの差分
+    from_date = (datetime.strptime(date_str, "%Y%m%d") - timedelta(days=3)).strftime("%Y%m%d")
+    fromtime = from_date + "000000"
+    target_md = int(date_str[4:])
+
+    p(f"出馬表取得中 (NVOpen from={from_date})...")
+
+    try:
+        result, read_count, download_count, _ = wrapper.jv_open("RACE", fromtime, 1)
+    except Exception as e:
+        p(f"  NVOpen失敗: {e}")
+        return 0
+
+    if result == -1 or (read_count == 0 and download_count == 0):
+        p("  差分データなし")
+        return 0
+
+    # ダウンロード待ち
+    if download_count > 0:
+        p(f"  ダウンロード中 ({download_count}件)...")
+        for _ in range(120):
+            st = wrapper.jv_status()
+            if st == 0:
+                break
+            elif st < 0:
+                break
+            _time.sleep(1)
+
+    factory = ParserFactory()
+    ra_count = 0
+    se_count = 0
+
+    for _ in range(500000):
+        try:
+            ret, buff, _ = wrapper.jv_read()
+        except Exception:
+            break
+        if ret == 0:
+            break
+        if ret < 0 or not buff or len(buff) < 2:
+            continue
+
+        rt = buff[:2].decode('cp932', errors='replace')
+        if rt not in ('RA', 'SE'):
+            continue
+
+        try:
+            parser = factory.get_parser(rt)
+            if parser is None:
+                continue
+            parsed = parser.parse(buff)
+            if parsed is None:
+                continue
+
+            records = parsed if isinstance(parsed, list) else [parsed]
+            for rec in records:
+                md = rec.get('MonthDay')
+                try:
+                    md_int = int(str(md).strip())
+                except (ValueError, TypeError):
+                    continue
+                if md_int != target_md:
+                    continue
+
+                if rt == 'RA':
+                    _generic_upsert(conn, ra_table, rec, ra_pk)
+                    ra_count += 1
+                elif rt == 'SE':
+                    _generic_upsert(conn, se_table, rec, se_pk)
+                    se_count += 1
+        except Exception:
+            pass
+
+    try:
+        wrapper.jv_close()
+    except Exception:
+        pass
+
+    p(f"  RA: {ra_count}件, SE: {se_count}件")
+    return ra_count
+
+
 # ── main loop ──
 
 def run_poll_odds(wrapper, conn, date_str: str, is_nar: bool):
@@ -213,6 +310,9 @@ def run_poll_odds(wrapper, conn, date_str: str, is_nar: bool):
     jyo_names = NAR_JYOCD_NAMES if is_nar else JYO_NAMES
     table_map = _get_table_map(is_nar)
     factory = ParserFactory()
+
+    # 出馬表を事前取得（NVOpen差分）
+    prefetch_races(wrapper, conn, date_str, is_nar)
 
     races = get_races_with_hasso(conn, date_str, is_nar)
     if not races:

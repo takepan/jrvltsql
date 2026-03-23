@@ -596,8 +596,97 @@ def get_nar_today_races(conn, date_str):
     return rows
 
 
+def prefetch_nar_races(wrapper, conn, date_str: str):
+    """NVOpen差分で当日の出馬表(RA/SE)をDBにupsert。
+
+    0B12は確定レースしか返さないため、未発走レースは履歴APIで取得する。
+    """
+    import time as _time
+    from datetime import datetime as _dt, timedelta as _td
+    from src.parser.factory import ParserFactory
+
+    from_date = (_dt.strptime(date_str, "%Y%m%d") - _td(days=3)).strftime("%Y%m%d")
+    fromtime = from_date + "000000"
+    target_md = int(date_str[4:])
+
+    p(f"\n--- 出馬表取得 (NVOpen from={from_date}) ---")
+
+    try:
+        result, read_count, download_count, _ = wrapper.jv_open("RACE", fromtime, 1)
+    except Exception as e:
+        p(f"  NVOpen失敗: {e}")
+        return 0
+
+    if result == -1 or (read_count == 0 and download_count == 0):
+        p("  差分データなし")
+        return 0
+
+    if download_count > 0:
+        p(f"  ダウンロード中 ({download_count}件)...")
+        for _ in range(120):
+            st = wrapper.jv_status()
+            if st == 0:
+                break
+            elif st < 0:
+                break
+            _time.sleep(1)
+
+    factory = ParserFactory()
+    ra_pk = ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum']
+    se_pk = ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'umaban']
+    ra_count = 0
+    se_count = 0
+
+    for _ in range(500000):
+        try:
+            ret, buff, _ = wrapper.jv_read()
+        except Exception:
+            break
+        if ret == 0:
+            break
+        if ret < 0 or not buff or len(buff) < 2:
+            continue
+
+        rt = buff[:2].decode('cp932', errors='replace')
+        if rt not in ('RA', 'SE'):
+            continue
+
+        try:
+            parser = factory.get_parser(rt)
+            if parser is None:
+                continue
+            parsed = parser.parse(buff)
+            if parsed is None:
+                continue
+            records = parsed if isinstance(parsed, list) else [parsed]
+            for rec in records:
+                md = rec.get('MonthDay')
+                try:
+                    md_int = int(str(md).strip())
+                except (ValueError, TypeError):
+                    continue
+                if md_int != target_md:
+                    continue
+                if rt == 'RA':
+                    _generic_upsert(conn, "nl_ra_nar", rec, ra_pk)
+                    ra_count += 1
+                elif rt == 'SE':
+                    _generic_upsert(conn, "nl_se_nar", rec, se_pk)
+                    se_count += 1
+        except Exception:
+            pass
+
+    try:
+        wrapper.jv_close()
+    except Exception:
+        pass
+
+    p(f"  RA: {ra_count}件, SE: {se_count}件")
+    return ra_count
+
+
 def run_fetch_today_nar(wrapper, conn, date_str: str):
-    """NAR版メインロジック: 結果(0B12) + オッズ(0B30) を取得してDBにupsert
+    """NAR版メインロジック: 出馬表(NVOpen) + 結果(0B12) + オッズ(0B30)
 
     Args:
         wrapper: NVLinkWrapper (jv_rt_open/jv_read/jv_close を持つ)
@@ -606,8 +695,11 @@ def run_fetch_today_nar(wrapper, conn, date_str: str):
     """
     p(f"=== fetch today NAR ({date_str}) ===")
 
+    # 出馬表を事前取得（NVOpen差分 — 未発走レース含む全RA/SE）
+    prefetch_nar_races(wrapper, conn, date_str)
+
     races = get_nar_today_races(conn, date_str)
-    p(f"本日のNARレース: {len(races)}R")
+    p(f"\n本日のNARレース: {len(races)}R")
     if races:
         jyo_set = sorted(set(str(r[0]).zfill(2) if isinstance(r[0], int) else r[0]
                               for r in races))
