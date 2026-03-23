@@ -1135,6 +1135,74 @@ def monitor(ctx, daemon, data_spec, interval, db, source, nar):
 
 
 @cli.command()
+@click.option("--date", "date_str", default=None,
+              help="対象日 YYYYMMDD (default: today)")
+@click.pass_context
+def today(ctx, date_str):
+    """当日のDM・TM・オッズをリアルタイムAPIで取得してPostgreSQLにupsert.
+
+    \b
+    JVRTOpenで以下を取得:
+      速報系: DM(0B13), TM(0B17)
+      時系列: O1-O6(0B30-0B36) ※レース単位で全オッズ
+
+    \b
+    Examples:
+      jltsql today                    # 本日分を取得
+      jltsql today --date 20260322    # 指定日を取得
+    """
+    import datetime as dt
+    import pg8000.native
+    from src.jvlink.wrapper import JVLinkWrapper
+    from src.cli.fetch_today import run_fetch_today
+
+    config = ctx.obj.get("config")
+
+    if date_str is None:
+        date_str = dt.date.today().strftime("%Y%m%d")
+
+    # PostgreSQL接続
+    if config:
+        pg_config = config.get("databases.postgresql")
+    else:
+        pg_config = None
+
+    if not pg_config:
+        console.print("[red]Error:[/red] PostgreSQL設定が見つかりません。config.yamlを確認してください。")
+        sys.exit(1)
+
+    console.print(f"[bold cyan]当日データ取得 ({date_str})[/bold cyan]\n")
+
+    try:
+        # JVLink初期化
+        sid = config.get("jvlink.sid", "JLTSQL") if config else "JLTSQL"
+        wrapper = JVLinkWrapper(sid=sid)
+        wrapper.jv_init()
+
+        # DB接続
+        conn = pg8000.native.Connection(
+            host=pg_config.get("host", "localhost"),
+            port=pg_config.get("port", 5432),
+            database=pg_config.get("database", "keiba"),
+            user=pg_config.get("user", "jltsql"),
+            password=pg_config.get("password", ""),
+        )
+
+        try:
+            result = run_fetch_today(wrapper, conn, date_str)
+        finally:
+            conn.close()
+
+    except KeyboardInterrupt:
+        console.print("\n[yellow]中断されました[/yellow]")
+        sys.exit(0)
+    except Exception as e:
+        console.print(f"\n[red]Error:[/red] {e}", style="bold")
+        logger.error("today command failed", error=str(e), exc_info=True)
+        sys.exit(1)
+
+
+@cli.command()
 @click.pass_context
 def stop(ctx):
     """Stop real-time monitoring."""
