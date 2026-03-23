@@ -687,8 +687,9 @@ def _split_date_range(from_date: str, to_date: str, chunk_months: int):
     default=False,
     help="PostgreSQL COPY一括挿入を無効にし、通常のINSERTを使用",
 )
+@click.option("--nar", is_flag=True, help="地方競馬モード（--source nar のショートカット）")
 @click.pass_context
-def fetch(ctx, date_from, date_to, data_spec, jv_option, db, batch_size, progress, source, chunk_months, include_types, no_copy):
+def fetch(ctx, date_from, date_to, data_spec, jv_option, db, batch_size, progress, source, chunk_months, include_types, no_copy, nar):
     """Fetch historical data from JRA-VAN/UmaConn DataLab.
 
     JVOpen option meanings:
@@ -717,6 +718,10 @@ def fetch(ctx, date_from, date_to, data_spec, jv_option, db, batch_size, progres
     from src.database.schema import create_all_tables
     from src.importer.batch import BatchProcessor
     from src.utils.data_source import DataSource
+
+    # --nar flag overrides --source
+    if nar:
+        source = "nar"
 
     # Convert source to DataSource enum
     data_source = DataSource.from_string(source)
