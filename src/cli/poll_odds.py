@@ -32,13 +32,32 @@ ODDS_TABLE_MAP = {
     'O6': ('nl_o6', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'kumi']),
 }
 
+# 時系列テーブル (HassoTime をPKに含む → 複数時点のデータを保持)
+TS_TABLE_MAP = {
+    'O1': ('ts_o1', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'umaban', 'hassotime']),
+    'O1W': ('ts_o1_waku', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'kumi', 'hassotime']),
+    'O2': ('ts_o2', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'kumi', 'hassotime']),
+    'O3': ('ts_o3', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'kumi', 'hassotime']),
+    'O4': ('ts_o4', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'kumi', 'hassotime']),
+    'O5': ('ts_o5', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'kumi', 'hassotime']),
+    'O6': ('ts_o6', ['year', 'monthday', 'jyocd', 'kaiji', 'nichiji', 'racenum', 'kumi', 'hassotime']),
+}
+
 ODDS_TABLE_MAP_NAR = {
     k: (v[0] + '_nar', v[1]) for k, v in ODDS_TABLE_MAP.items()
+}
+
+TS_TABLE_MAP_NAR = {
+    k: (v[0] + '_nar', v[1]) for k, v in TS_TABLE_MAP.items()
 }
 
 
 def _get_table_map(is_nar: bool) -> dict:
     return ODDS_TABLE_MAP_NAR if is_nar else ODDS_TABLE_MAP
+
+
+def _get_ts_table_map(is_nar: bool) -> dict:
+    return TS_TABLE_MAP_NAR if is_nar else TS_TABLE_MAP
 
 
 # ── race/hassotime queries ──
@@ -95,8 +114,10 @@ def get_confirmed_races(conn, date_str: str, is_nar: bool) -> Set[Tuple[str, int
 
 # ── odds fetch ──
 
-def fetch_race_odds(wrapper, conn, key: str, table_map: dict, factory: ParserFactory):
-    """1レース分のオッズを 0B30 で取得して upsert。件数を返す。"""
+def fetch_race_odds(wrapper, conn, key: str, table_map: dict, factory: ParserFactory,
+                    ts_table_map: Optional[dict] = None):
+    """1レース分のオッズを 0B30 で取得して upsert。件数を返す。
+    ts_table_map が指定されていれば TS_O* テーブルにも同時書き込み。"""
     try:
         result, _ = wrapper.jv_rt_open("0B30", key=key)
     except Exception:
@@ -141,6 +162,12 @@ def fetch_race_odds(wrapper, conn, key: str, table_map: dict, factory: ParserFac
                     continue
                 tbl, pk = mapping
                 _generic_upsert(conn, tbl, rec, pk)
+                # 時系列テーブルにも書き込み
+                if ts_table_map:
+                    ts_mapping = ts_table_map.get(rs)
+                    if ts_mapping:
+                        ts_tbl, ts_pk = ts_mapping
+                        _generic_upsert(conn, ts_tbl, rec, ts_pk)
                 total += 1
         except Exception:
             pass
@@ -309,6 +336,7 @@ def run_poll_odds(wrapper, conn, date_str: str, is_nar: bool):
     """オッズポーリングメインループ"""
     jyo_names = NAR_JYOCD_NAMES if is_nar else JYO_NAMES
     table_map = _get_table_map(is_nar)
+    ts_table_map = _get_ts_table_map(is_nar)
     factory = ParserFactory()
 
     # 出馬表を事前取得（NVOpen差分）
@@ -353,7 +381,7 @@ def run_poll_odds(wrapper, conn, date_str: str, is_nar: bool):
         cycle_total = 0
         for jyocd, kaiji, nichiji, racenum, hasso_dt in targets:
             key = f"{date_str}{jyocd}{racenum:02d}"
-            cnt, dk = fetch_race_odds(wrapper, conn, key, table_map, factory)
+            cnt, dk = fetch_race_odds(wrapper, conn, key, table_map, factory, ts_table_map)
             cycle_total += cnt
 
             if dk in ("4", "5"):
