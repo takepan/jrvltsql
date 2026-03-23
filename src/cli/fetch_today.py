@@ -419,7 +419,7 @@ def _sanitize(val):
 
 
 def _generic_upsert(conn, table, record, pk_cols):
-    """汎用 ON CONFLICT upsert"""
+    """汎用 ON CONFLICT upsert (1件)"""
     record = {k: _sanitize(v) for k, v in record.items()}
     cols = list(record.keys())
     cols_str = ", ".join(cols)
@@ -432,6 +432,38 @@ def _generic_upsert(conn, table, record, pk_cols):
     else:
         sql = f"INSERT INTO {table} ({cols_str}) VALUES ({placeholders}) ON CONFLICT ({pk_str}) DO NOTHING"
     conn.run(sql, **record)
+
+
+def _batch_upsert(conn, table, records, pk_cols):
+    """汎用 ON CONFLICT upsert (バッチ — VALUES連結で一括実行)"""
+    if not records:
+        return 0
+    records = [{k: _sanitize(v) for k, v in r.items()} for r in records]
+    cols = list(records[0].keys())
+    cols_str = ", ".join(cols)
+    pk_str = ", ".join(pk_cols)
+    up_cols = [c for c in cols if c.lower() not in [pk.lower() for pk in pk_cols]]
+
+    # VALUES ($1,$2,...), ($3,$4,...), ...
+    params = []
+    value_clauses = []
+    for i, rec in enumerate(records):
+        placeholders = []
+        for j, col in enumerate(cols):
+            idx = i * len(cols) + j + 1
+            placeholders.append(f"${idx}")
+            params.append(rec.get(col))
+        value_clauses.append(f"({', '.join(placeholders)})")
+
+    values_str = ", ".join(value_clauses)
+    if up_cols:
+        up_str = ", ".join(f"{c} = EXCLUDED.{c}" for c in up_cols)
+        sql = f"INSERT INTO {table} ({cols_str}) VALUES {values_str} ON CONFLICT ({pk_str}) DO UPDATE SET {up_str}"
+    else:
+        sql = f"INSERT INTO {table} ({cols_str}) VALUES {values_str} ON CONFLICT ({pk_str}) DO NOTHING"
+
+    conn.run(sql, *params)
+    return len(records)
 
 
 def fetch_nar_results(wrapper, conn, date_str):
