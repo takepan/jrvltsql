@@ -567,9 +567,6 @@ def run_poll_odds(wrapper, conn, date_str: str, is_nar: bool):
                                           table_map, ts_table_map, factory)
                 rtd_total += rtd_cnt
 
-            if dk in ("4", "5"):
-                confirmed.add((jyocd, racenum))
-
         total_odds += cycle_total + rtd_total
 
         # 0B12 rtdから結果も取り込み (NAR)
