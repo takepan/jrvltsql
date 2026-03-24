@@ -108,61 +108,61 @@ class UMParser:
             result["KeiroCD"] = self.decode_field(data[202:204])
 
             # 18-31. <3代血統情報> 繰返14回
-            # 各: 繁殖登録番号(8) + 馬名(36) = 44バイト, 合計616バイト
+            # 各: 繁殖登録番号(10) + 馬名(36) = 46バイト, 合計644バイト
             ketto_pos = 204
             for i in range(1, 15):
-                result[f"Ketto3InfoHansyokuNum{i}"] = self.decode_field(data[ketto_pos:ketto_pos+8])
-                result[f"Ketto3InfoBamei{i}"] = self.decode_field(data[ketto_pos+8:ketto_pos+44])
-                ketto_pos += 44
-            # ketto_pos = 820
+                result[f"Ketto3InfoHansyokuNum{i}"] = self.decode_field(data[ketto_pos:ketto_pos+10])
+                result[f"Ketto3InfoBamei{i}"] = self.decode_field(data[ketto_pos+10:ketto_pos+46])
+                ketto_pos += 46
+            # ketto_pos = 848
 
             # 32. 東西所属コード (長さ:1)
-            result["TozaiCD"] = self.decode_field(data[820:821])
+            result["TozaiCD"] = self.decode_field(data[848:849])
 
             # 33. 調教師コード (長さ:5)
-            result["ChokyosiCode"] = self.decode_field(data[821:826])
+            result["ChokyosiCode"] = self.decode_field(data[849:854])
 
             # 34. 調教師名略称 (長さ:8)
-            result["ChokyosiRyakusyo"] = self.decode_field(data[826:834])
+            result["ChokyosiRyakusyo"] = self.decode_field(data[854:862])
 
             # 35. 招待地域名 (長さ:20)
-            result["Syotai"] = self.decode_field(data[834:854])
+            result["Syotai"] = self.decode_field(data[862:882])
 
             # 36. 生産者コード (長さ:6)
-            result["BreederCode"] = self.decode_field(data[854:860])
+            result["BreederCode"] = self.decode_field(data[882:888])
 
-            # 37. 生産者名(法人格無) (長さ:70) ※spec=72, JVRead=70
-            result["BreederName"] = self.decode_field(data[860:930])
+            # 37. 生産者名(法人格無) (長さ:70)
+            result["BreederName"] = self.decode_field(data[888:958])
 
             # 38. 産地名 (長さ:20)
-            result["SanchiName"] = self.decode_field(data[930:950])
+            result["SanchiName"] = self.decode_field(data[958:978])
 
             # 39. 馬主コード (長さ:6)
-            result["BanusiCode"] = self.decode_field(data[950:956])
+            result["BanusiCode"] = self.decode_field(data[978:984])
 
             # 40. 馬主名(法人格無) (長さ:64)
-            result["BanusiName"] = self.decode_field(data[956:1020])
+            result["BanusiName"] = self.decode_field(data[984:1048])
 
             # 41. 平地本賞金累計 (長さ:9)
-            result["RuikeiHonsyoHeiti"] = self.decode_field(data[1020:1029])
+            result["RuikeiHonsyoHeiti"] = self.decode_field(data[1048:1057])
 
             # 42. 障害本賞金累計 (長さ:9)
-            result["RuikeiHonsyoSyogai"] = self.decode_field(data[1029:1038])
+            result["RuikeiHonsyoSyogai"] = self.decode_field(data[1057:1066])
 
             # 43. 平地付加賞金累計 (長さ:9)
-            result["RuikeiFukaHeichi"] = self.decode_field(data[1038:1047])
+            result["RuikeiFukaHeichi"] = self.decode_field(data[1066:1075])
 
             # 44. 障害付加賞金累計 (長さ:9)
-            result["RuikeiFukaSyogai"] = self.decode_field(data[1047:1056])
+            result["RuikeiFukaSyogai"] = self.decode_field(data[1075:1084])
 
             # 45. 平地収得賞金累計 (長さ:9)
-            result["RuikeiSyutokuHeichi"] = self.decode_field(data[1056:1065])
+            result["RuikeiSyutokuHeichi"] = self.decode_field(data[1084:1093])
 
             # 46. 障害収得賞金累計 (長さ:9)
-            result["RuikeiSyutokuSyogai"] = self.decode_field(data[1065:1074])
+            result["RuikeiSyutokuSyogai"] = self.decode_field(data[1093:1102])
 
             # 47. 総合着回数 (繰返6, 各3バイト, 合計18)
-            pos = 1074
+            pos = 1102
             for i in range(1, 7):
                 result[f"SogoChakukaisu{i}"] = self.decode_field(data[pos:pos+3])
                 pos += 3
