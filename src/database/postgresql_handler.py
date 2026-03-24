@@ -691,10 +691,13 @@ class PostgreSQLDatabase(BaseDatabase):
                 f"CREATE TEMP TABLE {staging} AS SELECT * FROM {table_name} WHERE false"
             )
 
-            # 2. COPY into staging
-            stream = self._build_copy_stream(data_list, columns)
+            # 2. COPY into staging (chunked to avoid MemoryError on 32-bit Python)
             copy_sql = f"COPY {staging} ({columns_clause}) FROM STDIN"
-            self._connection.run(copy_sql, stream=stream)
+            chunk_size = 5000
+            for i in range(0, len(data_list), chunk_size):
+                chunk = data_list[i:i + chunk_size]
+                stream = self._build_copy_stream(chunk, columns)
+                self._connection.run(copy_sql, stream=stream)
 
             # 3. Upsert: INSERT ... ON CONFLICT DO UPDATE
             pk_columns = self._get_primary_key_columns(table_name)
@@ -743,8 +746,15 @@ class PostgreSQLDatabase(BaseDatabase):
             return row_count
 
         except Exception as e:
-            logger.error(f"COPY upsert failed for {table_name}", error=str(e))
-            raise DatabaseError(f"COPY upsert failed: {e}")
+            logger.error(
+                f"COPY upsert failed for {table_name}",
+                error=str(e),
+                error_repr=repr(e),
+                error_type=type(e).__name__,
+                rows=len(data_list),
+                columns=len(columns),
+            )
+            raise DatabaseError(f"COPY upsert failed: {repr(e)}")
 
         finally:
             try:

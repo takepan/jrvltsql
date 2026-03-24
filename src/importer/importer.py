@@ -495,6 +495,13 @@ class DataImporter:
                         table=table_name,
                         error=str(e),
                     )
+                    # PostgreSQL requires ROLLBACK after error to clear
+                    # the "aborted" transaction state, otherwise all
+                    # subsequent SQL (including fallback INSERT) will be ignored.
+                    try:
+                        self.database.rollback()
+                    except Exception:
+                        pass
 
             # INSERT path (default / fallback)
             rows = self.database.insert_many(table_name, converted_batch, use_replace=True)
