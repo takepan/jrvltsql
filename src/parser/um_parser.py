@@ -3,9 +3,14 @@
 """
 UMレコードパーサー: １３．競走馬マスタ
 
-JVReadが返す実データ (1577バイト) に基づいてパースする。
-注: 仕様書(Ver.4.9.0.1)は1609バイトだが、JVReadの実データは1577バイト。
-    差分32バイト: HansyokuNum 10→8(×14=28), BreederCode 8→6(2), BreederName 72→70(2)
+JV-Data仕様書(Ver.4.9.0.1): レコード長1609バイト
+
+注: pywin32のCOM BSTR変換でNULLパディングバイトが消失するため、
+    実際に受け取るcp932バイト列は1577バイト程度になる。
+    (HansyokuNum 10桁中の未使用NULLパディング × 14エントリ = ~28バイト消失、
+     BreederCode/BreederName のNULLパディングで ~4バイト消失)
+    このため、ketto3info内ではバイトオフセットではなく
+    数字/非数字の境界で動的にフィールドを区切る。
 """
 
 from typing import Dict, Optional
@@ -17,12 +22,12 @@ class UMParser:
     UMレコードパーサー
 
     １３．競走馬マスタ
-    レコード長: 1577 bytes (JVRead実データ)
+    レコード長: 1609 bytes (仕様)
     VBテーブル名: UMA
     """
 
     RECORD_TYPE = "UM"
-    RECORD_LENGTH = 1577  # JVRead実データ
+    RECORD_LENGTH = 1609
 
     def __init__(self):
         self.logger = get_logger(__name__)
@@ -31,171 +36,187 @@ class UMParser:
     def decode_field(data: bytes) -> str:
         """バイトデータをデコードして文字列に変換"""
         try:
-            # CP932でデコード、空白を除去
             return data.decode("cp932", errors="replace").strip()
         except Exception:
             return ""
 
+    @staticmethod
+    def _find_next_digit_run(data: bytes, start: int, min_digits: int = 8) -> int:
+        """data[start:]から連続数字列(min_digits桁以上)の開始位置を返す。見つからなければlen(data)。"""
+        i = start
+        while i < len(data):
+            if 0x30 <= data[i] <= 0x39:
+                # 数字の連続長を数える
+                j = i
+                while j < len(data) and 0x30 <= data[j] <= 0x39:
+                    j += 1
+                if j - i >= min_digits:
+                    return i
+                i = j
+            else:
+                # cp932 2バイト文字のリードバイトならスキップ
+                b = data[i]
+                if (0x81 <= b <= 0x9F or 0xE0 <= b <= 0xFC) and i + 1 < len(data):
+                    i += 2
+                else:
+                    i += 1
+        return len(data)
+
+    @classmethod
+    def _parse_ketto_entries(cls, data: bytes, count: int = 14):
+        """ketto3info (HansyokuNum + Bamei) × count をパースする。
+
+        NULLパディング消失により固定オフセットが使えないため、
+        「次の長い数字列(>=8桁)の手前までがBamei」という方法で区切る。
+        """
+        entries = []
+        pos = 0
+        for i in range(count):
+            # HansyokuNum: 先頭から数字を読む
+            num_end = pos
+            while num_end < len(data) and 0x30 <= data[num_end] <= 0x39:
+                num_end += 1
+            num_val = data[pos:num_end].decode("ascii", errors="replace").strip()
+
+            # Bamei: 次のHansyokuNum(8桁以上の数字列)の手前まで
+            if i < count - 1:
+                next_num_start = cls._find_next_digit_run(data, num_end, 8)
+            else:
+                # 最後のエントリ: 残り全部がBamei (最大36バイト)
+                next_num_start = min(num_end + 36, len(data))
+
+            name_val = data[num_end:next_num_start].decode("cp932", errors="replace").strip()
+            entries.append((num_val, name_val))
+            pos = next_num_start
+
+        return entries, pos
+
     def parse(self, data: bytes) -> Optional[Dict[str, str]]:
-        """
-        UMレコードをパースしてフィールド辞書を返す
-
-        Args:
-            data: パース対象のバイトデータ
-
-        Returns:
-            フィールド名をキーとした辞書、エラー時はNone
-        """
+        """UMレコードをパースしてフィールド辞書を返す。"""
         try:
-            # レコード長チェック (短いレコードも許容)
             if len(data) < 200:
                 self.logger.warning(
-                    f"UMレコード長不足: expected>={200}, actual={len(data)}"
+                    f"UMレコード長不足: expected>=200, actual={len(data)}"
                 )
 
-            # フィールド抽出
             result = {}
 
-            # 1. レコード種別ID (位置:1, 長さ:2)
+            # 1-17: 固定長フィールド (バイトオフセット 0-203, NULLなし)
             result["RecordSpec"] = self.decode_field(data[0:2])
-
-            # 2. データ区分 (位置:3, 長さ:1)
             result["DataKubun"] = self.decode_field(data[2:3])
-
-            # 3. データ作成年月日 (位置:4, 長さ:8)
             result["MakeDate"] = self.decode_field(data[3:11])
-
-            # 4. 血統登録番号 (位置:12, 長さ:10) - PRIMARY KEY
             result["KettoNum"] = self.decode_field(data[11:21])
-
-            # 5. 競走馬抹消区分 (位置:22, 長さ:1)
             result["DelKubun"] = self.decode_field(data[21:22])
-
-            # 6. 競走馬登録年月日 (位置:23, 長さ:8)
             result["RegDate"] = self.decode_field(data[22:30])
-
-            # 7. 競走馬抹消年月日 (位置:31, 長さ:8)
             result["DelDate"] = self.decode_field(data[30:38])
-
-            # 8. 生年月日 (位置:39, 長さ:8)
             result["BirthDate"] = self.decode_field(data[38:46])
-
-            # 9. 馬名 (位置:47, 長さ:36)
             result["Bamei"] = self.decode_field(data[46:82])
-
-            # 10. 馬名半角ｶﾅ (位置:83, 長さ:36)
             result["BameiKana"] = self.decode_field(data[82:118])
-
-            # 11. 馬名欧字 (位置:119, 長さ:60)
             result["BameiEng"] = self.decode_field(data[118:178])
-
-            # 12. JRA施設在きゅうフラグ (位置:179, 長さ:1)
             result["ZaikyuFlag"] = self.decode_field(data[178:179])
-
-            # 13. 予備 (位置:180, 長さ:19)
             result["Reserved"] = self.decode_field(data[179:198])
-
-            # 14. 馬記号コード (位置:199, 長さ:2)
             result["UmaKigoCD"] = self.decode_field(data[198:200])
-
-            # 15. 性別コード (位置:201, 長さ:1)
             result["SexCD"] = self.decode_field(data[200:201])
-
-            # 16. 品種コード (位置:202, 長さ:1)
             result["HinsyuCD"] = self.decode_field(data[201:202])
-
-            # 17. 毛色コード (位置:203, 長さ:2)
             result["KeiroCD"] = self.decode_field(data[202:204])
 
-            # 18-31. <3代血統情報> 繰返14回
-            # 各: 繁殖登録番号(10) + 馬名(36) = 46バイト, 合計644バイト
-            ketto_pos = 204
-            for i in range(1, 15):
-                result[f"Ketto3InfoHansyokuNum{i}"] = self.decode_field(data[ketto_pos:ketto_pos+10])
-                result[f"Ketto3InfoBamei{i}"] = self.decode_field(data[ketto_pos+10:ketto_pos+46])
-                ketto_pos += 46
-            # ketto_pos = 848
+            # 18-31: 3代血統情報 繰返14回
+            # HansyokuNum(仕様10バイト) + Bamei(仕様36バイト)
+            # NULLパディング消失により固定オフセットが使えないため、
+            # 「次の8桁以上数字列の手前までがBamei」で動的分割
+            ketto_data = data[204:]
+            entries, ketto_consumed = self._parse_ketto_entries(ketto_data, 14)
+            for i, (num_val, name_val) in enumerate(entries, 1):
+                result[f"Ketto3InfoHansyokuNum{i}"] = num_val
+                result[f"Ketto3InfoBamei{i}"] = name_val
+            pos = 204 + ketto_consumed
 
-            # 32. 東西所属コード (長さ:1)
-            result["TozaiCD"] = self.decode_field(data[848:849])
+            # 32-40: 後続フィールド（posベースで読み進める）
+            # TozaiCD (1)
+            result["TozaiCD"] = self.decode_field(data[pos:pos+1])
+            pos += 1
 
-            # 33. 調教師コード (長さ:5)
-            result["ChokyosiCode"] = self.decode_field(data[849:854])
+            # ChokyosiCode (5)
+            result["ChokyosiCode"] = self.decode_field(data[pos:pos+5])
+            pos += 5
 
-            # 34. 調教師名略称 (長さ:8)
-            result["ChokyosiRyakusyo"] = self.decode_field(data[854:862])
+            # ChokyosiRyakusyo (8) - 日本語を含む
+            result["ChokyosiRyakusyo"] = self.decode_field(data[pos:pos+8])
+            pos += 8
 
-            # 35. 招待地域名 (長さ:20)
-            result["Syotai"] = self.decode_field(data[862:882])
+            # Syotai (20) - 日本語を含む
+            result["Syotai"] = self.decode_field(data[pos:pos+20])
+            pos += 20
 
-            # 36. 生産者コード (長さ:6)
-            result["BreederCode"] = self.decode_field(data[882:888])
+            # BreederCode (仕様8バイト、NULLパディング消失の可能性)
+            # 数字のみなので動的に読む
+            digit_end = pos
+            max_end = min(pos + 8, len(data))
+            while digit_end < max_end and 0x30 <= data[digit_end] <= 0x39:
+                digit_end += 1
+            result["BreederCode"] = data[pos:digit_end].decode("ascii", errors="replace").strip()
+            pos = digit_end
 
-            # 37. 生産者名(法人格無) (長さ:70)
-            result["BreederName"] = self.decode_field(data[888:958])
+            # BreederName (仕様72バイト) - 日本語を含む
+            result["BreederName"] = self.decode_field(data[pos:pos+70])
+            pos += 70
 
-            # 38. 産地名 (長さ:20)
-            result["SanchiName"] = self.decode_field(data[958:978])
+            # SanchiName (20)
+            result["SanchiName"] = self.decode_field(data[pos:pos+20])
+            pos += 20
 
-            # 39. 馬主コード (長さ:6)
-            result["BanusiCode"] = self.decode_field(data[978:984])
+            # BanusiCode (6)
+            result["BanusiCode"] = self.decode_field(data[pos:pos+6])
+            pos += 6
 
-            # 40. 馬主名(法人格無) (長さ:64)
-            result["BanusiName"] = self.decode_field(data[984:1048])
+            # BanusiName (64)
+            result["BanusiName"] = self.decode_field(data[pos:pos+64])
+            pos += 64
 
-            # 41. 平地本賞金累計 (長さ:9)
-            result["RuikeiHonsyoHeiti"] = self.decode_field(data[1048:1057])
+            # 41-46: 賞金累計 (各9バイト、数字のみ)
+            result["RuikeiHonsyoHeiti"] = self.decode_field(data[pos:pos+9])
+            pos += 9
+            result["RuikeiHonsyoSyogai"] = self.decode_field(data[pos:pos+9])
+            pos += 9
+            result["RuikeiFukaHeichi"] = self.decode_field(data[pos:pos+9])
+            pos += 9
+            result["RuikeiFukaSyogai"] = self.decode_field(data[pos:pos+9])
+            pos += 9
+            result["RuikeiSyutokuHeichi"] = self.decode_field(data[pos:pos+9])
+            pos += 9
+            result["RuikeiSyutokuSyogai"] = self.decode_field(data[pos:pos+9])
+            pos += 9
 
-            # 42. 障害本賞金累計 (長さ:9)
-            result["RuikeiHonsyoSyogai"] = self.decode_field(data[1057:1066])
-
-            # 43. 平地付加賞金累計 (長さ:9)
-            result["RuikeiFukaHeichi"] = self.decode_field(data[1066:1075])
-
-            # 44. 障害付加賞金累計 (長さ:9)
-            result["RuikeiFukaSyogai"] = self.decode_field(data[1075:1084])
-
-            # 45. 平地収得賞金累計 (長さ:9)
-            result["RuikeiSyutokuHeichi"] = self.decode_field(data[1084:1093])
-
-            # 46. 障害収得賞金累計 (長さ:9)
-            result["RuikeiSyutokuSyogai"] = self.decode_field(data[1093:1102])
-
-            # 47. 総合着回数 (繰返6, 各3バイト, 合計18)
-            pos = 1102
+            # 47-73: 着回数グループ (すべて数字3バイト × 繰返)
             for i in range(1, 7):
                 result[f"SogoChakukaisu{i}"] = self.decode_field(data[pos:pos+3])
                 pos += 3
 
-            # 48. 中央合計着回数 (繰返6, 各3バイト, 合計18)
             for i in range(1, 7):
                 result[f"ChuoChakukaisu{i}"] = self.decode_field(data[pos:pos+3])
                 pos += 3
 
-            # 49-55. 馬場別着回数 (各繰返6, 各3バイト, 7グループ)
             for ba_idx in range(1, 8):
                 for i in range(1, 7):
                     result[f"Ba{ba_idx}Chakukaisu{i}"] = self.decode_field(data[pos:pos+3])
                     pos += 3
 
-            # 56-67. 馬場状態別着回数 (各繰返6, 各3バイト, 12グループ)
             for j in range(1, 13):
                 for i in range(1, 7):
                     result[f"Jyotai{j}Chakukaisu{i}"] = self.decode_field(data[pos:pos+3])
                     pos += 3
 
-            # 68-73. 距離別着回数 (各繰返6, 各3バイト, 6グループ)
             for k in range(1, 7):
                 for i in range(1, 7):
                     result[f"Kyori{k}Chakukaisu{i}"] = self.decode_field(data[pos:pos+3])
                     pos += 3
 
-            # 74. 脚質傾向 (繰返4, 各3バイト, 合計12)
+            # 74. 脚質傾向 (繰返4, 各3バイト)
             for i in range(1, 5):
                 result[f"Kyakusitu{i}"] = self.decode_field(data[pos:pos+3])
                 pos += 3
 
-            # 75. 登録レース数 (長さ:3) ※1バイト数値+CRLF2バイト
+            # 75. 登録レース数 (3バイト)
             result["TorokuRacesu"] = self.decode_field(data[pos:pos+3])
 
             return result
