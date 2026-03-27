@@ -1,39 +1,45 @@
 #!/usr/bin/env python
 """
-HAレコードパーサー: 地方競馬 払戻
+HAレコードパーサー: 地方競馬 枠単票数
 
-NV-Link (UmaConn/地方競馬DATA) の払戻レコードをパースする。
-HAレコードはJRA HR（中央競馬 払戻）に相当するが、フォーマットが異なる。
+NV-Link (UmaConn/地方競馬DATA) の枠単票数レコードをパースする。
+枠番1-8の順列組み合わせ（最大8×8=64組）ごとの売れた票数を格納。
 
 構造:
   ヘッダー (31バイト): RecordSpec(2) + DataKubun(1) + MakeDate(8) + KaisaiDate(8)
                        + JyoCD(2) + Kaiji(2) + Nichiji(2) + RaceNum(2)
                        + TorokuTosu(2) + SyussoTosu(2)
   フラグ領域 (32バイト): HatsubaiFlag(1) + Reserved(16) + Padding(15)
-  払戻データ: 15バイト × N エントリー
-    各エントリー: Kumi(2) + Pay(13)
-    セクション区切り: 15バイトスペース
-  末尾: 合計払戻(15バイト) + レコード区切り(\\r\\n)
+  票数データ: 15バイト × N エントリー
+    各エントリー: Kumi(2) + Hyosu(13)
+    Kumi: 枠番の組 (例: "12"=1枠→2枠, "85"=8枠→5枠)
+    Hyosu: 売れた票数
+    空白エントリー: セクション区切り → スキップ
+  末尾: 合計票数(13バイト) + レコード区切り(\\r\\n)
 
-レコード長: 1032バイト
+1レコードから複数行（1組1行）を生成する。
 """
 
 
 from src.utils.logger import get_logger
 
 
+# 枠単の有効な組番 (11-88)
+VALID_WAKUTAN_KUMI = {
+    f"{w1}{w2}" for w1 in range(1, 9) for w2 in range(1, 9)
+}
+
+
 class HAParser:
     """
     HAレコードパーサー
 
-    地方競馬 払戻
-    レコード長: 1032 bytes
+    地方競馬 枠単票数
     VBテーブル名: HARAI_CHIHO (地方競馬用)
     """
 
     RECORD_TYPE = "HA"
-    RECORD_LENGTH = 1032
-    ENTRY_SIZE = 15  # kumi(2) + pay(13)
+    ENTRY_SIZE = 15  # kumi(2) + hyosu(13)
     HEADER_SIZE = 31  # RecordSpec through SyussoTosu
     FLAG_SIZE = 32  # HatsubaiFlag + reserved + padding
 
@@ -48,52 +54,13 @@ class HAParser:
         except Exception:
             return ""
 
-    def _parse_payout_entries(self, data: bytes, start: int) -> list[tuple[str, int]]:
-        """払戻エントリーをパースする。
-
-        Args:
-            data: レコード全体のバイトデータ
-            start: 払戻データの開始位置
+    def parse(self, data: bytes) -> "list[dict] | None":
+        """
+        HAレコードをパースして1組1行の辞書リストを返す。
 
         Returns:
-            (kumi, pay) のリスト。kumi='00'は合計行。
-        """
-        entries = []
-        pos = start
-        # 末尾の \r\n (2バイト) + 合計行の後のパディングを考慮
-        end = len(data) - 2  # Skip \r\n at end
-
-        while pos + self.ENTRY_SIZE <= end:
-            entry_bytes = data[pos : pos + self.ENTRY_SIZE]
-            entry_str = self.decode_field(entry_bytes)
-
-            # 空白エントリー = セクション区切り → スキップ
-            if not entry_str:
-                pos += self.ENTRY_SIZE
-                continue
-
-            kumi = self.decode_field(data[pos : pos + 2])
-            pay_str = self.decode_field(data[pos + 2 : pos + self.ENTRY_SIZE])
-
-            try:
-                pay = int(pay_str) if pay_str else 0
-            except ValueError:
-                pay = 0
-
-            entries.append((kumi, pay))
-            pos += self.ENTRY_SIZE
-
-        return entries
-
-    def parse(self, data: bytes) -> "dict | None":
-        """
-        HAレコードをパースしてフィールド辞書を返す
-
-        Args:
-            data: パース対象のバイトデータ
-
-        Returns:
-            フィールド名をキーとした辞書、エラー時はNone
+            辞書のリスト。各辞書はヘッダー共通項目 + Kumi + Hyosu を持つ。
+            エラー時はNone。
         """
         try:
             # Strip trailing CRLF if present
@@ -108,96 +75,66 @@ class HAParser:
                 )
                 return None
 
-            result = {}
             pos = 0
 
-            # 1. レコード種別ID (位置:1, 長さ:2)
-            result["RecordSpec"] = self.decode_field(data[pos : pos + 2])
-            pos += 2
+            # ヘッダー
+            header = {}
+            header["RecordSpec"] = self.decode_field(data[pos:pos + 2]); pos += 2
+            header["DataKubun"] = self.decode_field(data[pos:pos + 1]); pos += 1
+            header["MakeDate"] = self.decode_field(data[pos:pos + 8]); pos += 8
+            header["KaisaiDate"] = self.decode_field(data[pos:pos + 8]); pos += 8
+            header["JyoCD"] = self.decode_field(data[pos:pos + 2]); pos += 2
+            header["Kaiji"] = self.decode_field(data[pos:pos + 2]); pos += 2
+            header["Nichiji"] = self.decode_field(data[pos:pos + 2]); pos += 2
+            header["RaceNum"] = self.decode_field(data[pos:pos + 2]); pos += 2
+            header["TorokuTosu"] = self.decode_field(data[pos:pos + 2]); pos += 2
+            header["SyussoTosu"] = self.decode_field(data[pos:pos + 2]); pos += 2
 
-            # 2. データ区分 (位置:3, 長さ:1)
-            result["DataKubun"] = self.decode_field(data[pos : pos + 1])
-            pos += 1
+            # フラグ領域
+            header["HatsubaiFlag"] = self.decode_field(data[pos:pos + 1]); pos += 1
+            pos += 31  # Reserved(16) + Padding(15)
 
-            # 3. データ作成年月日 (位置:4, 長さ:8)
-            result["MakeDate"] = self.decode_field(data[pos : pos + 8])
-            pos += 8
+            # 票数エントリーをパース → 1組1行
+            rows = []
+            end = len(data)
 
-            # 4. 開催年月日 (位置:12, 長さ:8)
-            # ※ JRA HR では Year(4)+MonthDay(4) だが、NAR HA では KaisaiDate(8)
-            result["KaisaiDate"] = self.decode_field(data[pos : pos + 8])
-            pos += 8
+            while pos + self.ENTRY_SIZE <= end:
+                entry_str = self.decode_field(data[pos:pos + self.ENTRY_SIZE])
 
-            # 5. 競馬場コード (位置:20, 長さ:2)
-            result["JyoCD"] = self.decode_field(data[pos : pos + 2])
-            pos += 2
+                # 空白エントリー → スキップ
+                if not entry_str:
+                    pos += self.ENTRY_SIZE
+                    continue
 
-            # 6. 開催回[第N回] (位置:22, 長さ:2)
-            result["Kaiji"] = self.decode_field(data[pos : pos + 2])
-            pos += 2
+                kumi = self.decode_field(data[pos:pos + 2])
+                hyosu_str = self.decode_field(data[pos + 2:pos + self.ENTRY_SIZE])
 
-            # 7. 開催日目[N日目] (位置:24, 長さ:2)
-            result["Nichiji"] = self.decode_field(data[pos : pos + 2])
-            pos += 2
+                # 組番が枠単の範囲外なら末尾の合計
+                if kumi not in VALID_WAKUTAN_KUMI:
+                    try:
+                        total_vote = int(self.decode_field(data[pos:]))
+                    except ValueError:
+                        total_vote = 0
+                    for row in rows:
+                        row["TotalVote"] = total_vote
+                    break
 
-            # 8. レース番号 (位置:26, 長さ:2)
-            result["RaceNum"] = self.decode_field(data[pos : pos + 2])
-            pos += 2
+                try:
+                    hyosu = int(hyosu_str) if hyosu_str else 0
+                except ValueError:
+                    hyosu = 0
 
-            # 9. 登録頭数 (位置:28, 長さ:2)
-            result["TorokuTosu"] = self.decode_field(data[pos : pos + 2])
-            pos += 2
+                row = dict(header)
+                row["Kumi"] = kumi
+                row["WakutanVote"] = hyosu
+                rows.append(row)
+                pos += self.ENTRY_SIZE
 
-            # 10. 出走頭数 (位置:30, 長さ:2)
-            result["SyussoTosu"] = self.decode_field(data[pos : pos + 2])
-            pos += 2
+            # 合計行が見つからなかった場合
+            for row in rows:
+                row.setdefault("TotalVote", 0)
 
-            # 11. 発売フラグ (位置:32, 長さ:1)
-            result["HatsubaiFlag"] = self.decode_field(data[pos : pos + 1])
-            pos += 1
-
-            # 12. 予約/フラグ領域 (位置:33, 長さ:31)
-            # 16バイトのゼロ + 15バイトのスペース
-            result["Reserved"] = self.decode_field(data[pos : pos + 31])
-            pos += 31
-
-            # pos = 63: 払戻データ開始
-            # 15バイトエントリー: Kumi(2) + Pay(13)
-            entries = self._parse_payout_entries(data, pos)
-
-            # エントリーを結果辞書に格納
-            # 通常エントリー（kumi != '00'）と合計行（kumi == '00'）を分離
-            payout_entries = []
-            for kumi, pay in entries:
-                if kumi in ("00", "0", ""):
-                    result["TotalPay"] = str(pay)  # Override default
-                else:
-                    payout_entries.append({"Kumi": kumi, "Pay": str(pay)})
-
-            # 先頭の払戻エントリーをフラットフィールドとして格納
-            # （DBテーブル互換のため）- デフォルト値を設定
-            result.setdefault("TotalPay", "0")
-            result["PayKumi1"] = ""
-            result["PayAmount1"] = "0"
-            result["PayKumi2"] = ""
-            result["PayAmount2"] = "0"
-            result["PayKumi3"] = ""
-            result["PayAmount3"] = "0"
-
-            if payout_entries:
-                result["PayKumi1"] = payout_entries[0]["Kumi"]
-                result["PayAmount1"] = payout_entries[0]["Pay"]
-            if len(payout_entries) > 1:
-                result["PayKumi2"] = payout_entries[1]["Kumi"]
-                result["PayAmount2"] = payout_entries[1]["Pay"]
-            if len(payout_entries) > 2:
-                result["PayKumi3"] = payout_entries[2]["Kumi"]
-                result["PayAmount3"] = payout_entries[2]["Pay"]
-
-            # 全エントリー数を記録
-            result["PayoutCount"] = str(len(payout_entries))
-
-            return result
+            return rows
 
         except Exception as e:
             self.logger.exception(f"HAレコードパース中にエラー: {e}")

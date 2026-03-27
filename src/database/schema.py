@@ -2740,16 +2740,10 @@ SCHEMAS = {
             TorokuTosu TEXT,
             SyussoTosu TEXT,
             HatsubaiFlag TEXT,
-            Reserved TEXT,
-            PayKumi1 TEXT,
-            PayAmount1 TEXT,
-            PayKumi2 TEXT,
-            PayAmount2 TEXT,
-            PayKumi3 TEXT,
-            PayAmount3 TEXT,
-            TotalPay TEXT,
-            PayoutCount TEXT,
-            PRIMARY KEY (KaisaiDate, JyoCD, Kaiji, Nichiji, RaceNum)
+            Kumi TEXT,
+            WakutanVote BIGINT,
+            TotalVote BIGINT,
+            PRIMARY KEY (KaisaiDate, JyoCD, Kaiji, Nichiji, RaceNum, Kumi)
         )
     """,
     "NL_NU": """

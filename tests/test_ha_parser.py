@@ -1,4 +1,4 @@
-"""Unit tests for HA (地方競馬 払戻) parser."""
+"""Unit tests for HA (地方競馬 枠単票数) parser."""
 
 import pytest
 from src.parser.ha_parser import HAParser
@@ -24,9 +24,9 @@ class TestHAParser:
         syusso_tosu=b"11",
         hatsubai_flag=b"1",
         reserved=b"\x00" * 16 + b" " * 15,
-        payout_data=None,
+        entries=None,
     ):
-        """Build a test HA record (1032 bytes)."""
+        """Build a test HA record."""
         header = (
             record_spec
             + data_kubun
@@ -44,104 +44,95 @@ class TestHAParser:
         flags = hatsubai_flag + reserved
         assert len(flags) == 32
 
-        if payout_data is None:
-            # Default: 2 payout entries + separator + total
-            payout_data = (
-                b"01" + b"         1000"   # Kumi=01, Pay=1000
-                + b"02" + b"         2500"  # Kumi=02, Pay=2500
-                + b" " * 15                 # separator
-                + b"00" + b"         3500"  # TotalPay=3500
+        if entries is None:
+            # Default: 3 枠単エントリー
+            entries = (
+                b"12" + b"         1000"   # 1枠→2枠, 1000票
+                + b"13" + b"         2500"  # 1枠→3枠, 2500票
+                + b"21" + b"          500"  # 2枠→1枠, 500票
             )
 
-        # Pad to make total 1032 bytes (1030 + \r\n)
-        body = header + flags + payout_data
-        padding_needed = 1030 - len(body)
-        if padding_needed > 0:
-            body += b" " * padding_needed
-        body = body[:1030] + b"\r\n"
-        assert len(body) == 1032
+        body = header + flags + entries + b"\r\n"
         return body
 
     def test_basic_parse(self):
-        """Test basic HA record parsing."""
+        """Test basic HA record parsing - returns list of rows."""
         record = self._build_record()
-        result = self.parser.parse(record)
+        rows = self.parser.parse(record)
 
-        assert result is not None
-        assert result["RecordSpec"] == "HA"
-        assert result["DataKubun"] == "1"
-        assert result["MakeDate"] == "20240101"
-        assert result["KaisaiDate"] == "20240115"
-        assert result["JyoCD"] == "10"
-        assert result["Kaiji"] == "01"
-        assert result["Nichiji"] == "02"
-        assert result["RaceNum"] == "05"
-        assert result["TorokuTosu"] == "12"
-        assert result["SyussoTosu"] == "11"
-        assert result["HatsubaiFlag"] == "1"
+        assert rows is not None
+        assert isinstance(rows, list)
+        assert len(rows) == 3
 
-    def test_payout_entries(self):
-        """Test payout data extraction."""
+        # 全行にヘッダー情報が含まれる
+        for row in rows:
+            assert row["RecordSpec"] == "HA"
+            assert row["DataKubun"] == "1"
+            assert row["MakeDate"] == "20240101"
+            assert row["KaisaiDate"] == "20240115"
+            assert row["JyoCD"] == "10"
+            assert row["Kaiji"] == "01"
+            assert row["Nichiji"] == "02"
+            assert row["RaceNum"] == "05"
+            assert row["TorokuTosu"] == "12"
+            assert row["SyussoTosu"] == "11"
+            assert row["HatsubaiFlag"] == "1"
+
+    def test_kumi_and_vote(self):
+        """Test Kumi and WakutanVote extraction."""
         record = self._build_record()
-        result = self.parser.parse(record)
+        rows = self.parser.parse(record)
 
-        assert result is not None
-        assert result["PayKumi1"] == "01"
-        assert result["PayAmount1"] == "1000"
-        assert result["PayKumi2"] == "02"
-        assert result["PayAmount2"] == "2500"
-        assert result["TotalPay"] == "3500"
-        assert result["PayoutCount"] == "2"
+        assert rows[0]["Kumi"] == "12"
+        assert rows[0]["WakutanVote"] == 1000
+        assert rows[1]["Kumi"] == "13"
+        assert rows[1]["WakutanVote"] == 2500
+        assert rows[2]["Kumi"] == "21"
+        assert rows[2]["WakutanVote"] == 500
+        # TotalVote defaults to 0 when no total row
+        for row in rows:
+            assert row["TotalVote"] == 0
 
-    def test_single_payout(self):
-        """Test with single payout entry."""
-        payout = (
-            b"03" + b"          500"  # Kumi=03, Pay=500
-            + b" " * 15               # separator
-            + b"00" + b"          500"  # TotalPay
+    def test_all_8x8_combinations(self):
+        """Test with full 64 combinations (8枠 × 8枠)."""
+        entries = b""
+        for w1 in range(1, 9):
+            for w2 in range(1, 9):
+                kumi = f"{w1}{w2}".encode()
+                hyosu = f"{w1 * 100 + w2:13d}".encode()
+                entries += kumi + hyosu
+
+        record = self._build_record(entries=entries)
+        rows = self.parser.parse(record)
+
+        assert len(rows) == 64
+        assert rows[0]["Kumi"] == "11"
+        assert rows[0]["WakutanVote"] == 101
+        assert rows[63]["Kumi"] == "88"
+        assert rows[63]["WakutanVote"] == 808
+
+    def test_skip_blank_entries(self):
+        """Test that blank entries are skipped."""
+        entries = (
+            b"12" + b"          100"
+            + b" " * 15               # blank → skip
+            + b"34" + b"          200"
         )
-        record = self._build_record(payout_data=payout)
-        result = self.parser.parse(record)
+        record = self._build_record(entries=entries)
+        rows = self.parser.parse(record)
 
-        assert result is not None
-        assert result["PayKumi1"] == "03"
-        assert result["PayAmount1"] == "500"
-        assert result["PayKumi2"] == ""
-        assert result["PayAmount2"] == "0"
-        assert result["PayoutCount"] == "1"
+        assert len(rows) == 2
+        assert rows[0]["Kumi"] == "12"
+        assert rows[1]["Kumi"] == "34"
 
-    def test_three_payouts(self):
-        """Test with three payout entries."""
-        payout = (
-            b"01" + b"          100"
-            + b"02" + b"          200"
-            + b"03" + b"          300"
-            + b" " * 15
-            + b"00" + b"          600"
-        )
-        record = self._build_record(payout_data=payout)
-        result = self.parser.parse(record)
+    def test_empty_record(self):
+        """Test with no entries (all spaces)."""
+        entries = b" " * 60
+        record = self._build_record(entries=entries)
+        rows = self.parser.parse(record)
 
-        assert result is not None
-        assert result["PayKumi1"] == "01"
-        assert result["PayAmount1"] == "100"
-        assert result["PayKumi2"] == "02"
-        assert result["PayAmount2"] == "200"
-        assert result["PayKumi3"] == "03"
-        assert result["PayAmount3"] == "300"
-        assert result["PayoutCount"] == "3"
-
-    def test_empty_payout(self):
-        """Test with no payout entries (all spaces)."""
-        payout = b" " * 60
-        record = self._build_record(payout_data=payout)
-        result = self.parser.parse(record)
-
-        assert result is not None
-        assert result["PayoutCount"] == "0"
-        assert result["PayKumi1"] == ""
-        assert result["PayAmount1"] == "0"
-        assert result["TotalPay"] == "0"
+        assert rows is not None
+        assert len(rows) == 0
 
     def test_record_too_short(self):
         """Test with record shorter than minimum."""
@@ -149,20 +140,17 @@ class TestHAParser:
         assert result is None
 
     def test_record_with_lf_ending(self):
-        """Test record ending with just \\n instead of \\r\\n."""
-        record = self._build_record()
-        # Replace \r\n with \n
-        record = record[:-2] + b" \n"
-        result = self.parser.parse(record)
-        assert result is not None
-        assert result["RecordSpec"] == "HA"
-
-    def test_record_without_crlf(self):
-        """Test record without trailing newline."""
-        record = self._build_record()
-        record = record[:-2] + b"  "
-        result = self.parser.parse(record)
-        assert result is not None
+        """Test record ending with just \\n."""
+        entries = b"12" + b"          100"
+        body = (
+            b"HA" + b"1" + b"20240101" + b"20240115"
+            + b"10" + b"01" + b"02" + b"05" + b"12" + b"11"
+            + b"1" + b"\x00" * 16 + b" " * 15
+            + entries + b"\n"
+        )
+        rows = self.parser.parse(body)
+        assert rows is not None
+        assert len(rows) == 1
 
     def test_decode_field_cp932(self):
         """Test decode_field with cp932 encoding."""
@@ -173,6 +161,5 @@ class TestHAParser:
     def test_parser_attributes(self):
         """Test parser class attributes."""
         assert self.parser.RECORD_TYPE == "HA"
-        assert self.parser.RECORD_LENGTH == 1032
         assert self.parser.ENTRY_SIZE == 15
         assert self.parser.HEADER_SIZE == 31
