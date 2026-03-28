@@ -103,6 +103,7 @@ class TestIndividualParsers:
         _patch(samples, 'O5', 40, b'010203' + b'001000' + b'001')           # Kumi+Odds+Ninki (15B)
         _patch(samples, 'O6', 40, b'010203' + b'0010000' + b'0001')         # Kumi+Odds+Ninki (17B)
         _patch(samples, 'TM', 31, b'01' + b'0100')                          # Umaban+TMScore (6B)
+        _patch(samples, 'HA', 63, b'12' + b'          100')               # Kumi(2)+Hyosu(13) = 15B
 
         return samples
 
